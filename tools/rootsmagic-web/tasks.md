@@ -32,11 +32,11 @@ Check off a step when its behavior has been verified. **P1** covers the current 
   - [x] Let users add, name, and remove passkeys under **Account settings** after confirming their identity.
   - [x] Add **Sign in with a passkey** at the canonical HTTPS origin using WebAuthn with user verification. Keep password sign-in and the existing two-step recovery flow available, including on the LAN address. [WebAuthn standard](https://www.w3.org/TR/webauthn-3/)
   - [x] Verify enrollment, sign-in, removal, and fallback on desktop and phone layouts for both Reader and Administrator accounts, using browser virtual authenticators.
-- [ ] **Limit abusive requests and keep dependencies current**
+- [x] **Limit abusive requests and keep dependencies current**
   - [x] Update the affected cryptography dependency and run the existing authenticator and recovery-code checks.
   - [x] Apply sign-in and PDF limits and test that one user’s requests leave other family accounts usable.
   - [x] Add security-event logging for sign-ins and account changes. Keep credentials, tokens, and genealogy details out of the logs.
-  - [ ] Verify the proxy chain passes a trustworthy visitor address. Validate forwarded visitor addresses at the upstream proxy before using them. Account-level limits are active.
+  - [x] Verify the proxy chain passes a trustworthy visitor address. Confirm the public visitor address and verify that forged forwarding headers have no effect on the public and direct routes.
 - [x] **Back up comments with the rest of the reader state**
   - [x] Add the comments database to the VM backup routine.
   - [x] Restore the database into an isolated preview and verify comments still match their original tree and person.

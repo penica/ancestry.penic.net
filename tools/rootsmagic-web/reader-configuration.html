@@ -57,7 +57,7 @@
   <dl class="system-status">
     <dt>Passkey sign-in</dt><dd><a href="{{ public_origin }}/login">{{ public_origin }}</a></dd>
     <dt>Audit log</dt><dd>Enabled in the VM service journal</dd>
-    <dt>Proxy address handling</dt><dd>{{ 'Account limits apply through the shared proxy.' if shared_proxy else 'Visitor address limits apply to the connection address.' }}</dd>
+    <dt>Proxy address handling</dt><dd>{{ 'Visitor address limits apply when an address is available. Account limits still apply when only the shared proxy address is available.' if shared_proxy else 'Visitor address limits apply to the connection address.' }}</dd>
   </dl>
 </section>
 {% elif system_section == 'backups' %}

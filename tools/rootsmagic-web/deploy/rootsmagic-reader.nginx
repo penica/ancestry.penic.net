@@ -6,11 +6,36 @@ server {
 
 server {
     listen 443 ssl;
-    server_name lan-reader.example.org reader.example.org;
+    server_name lan-reader.example.org;
 
     ssl_certificate /etc/letsencrypt-rootsmagic-reader/live/lan-reader.example.org/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt-rootsmagic-reader/live/lan-reader.example.org/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
+
+    client_max_body_size 8m;
+    access_log off;
+
+    location / {
+        proxy_pass http://127.0.0.1:8765;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $remote_addr;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name reader.example.org;
+
+    ssl_certificate /etc/letsencrypt-rootsmagic-reader/live/lan-reader.example.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt-rootsmagic-reader/live/lan-reader.example.org/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    # This proxy overwrites X-Real-IP after validating the incoming peer.
+    # Set the exact upstream proxy address after verifying its headers.
+    # set_real_ip_from 192.0.2.10;
+    real_ip_header X-Real-IP;
+    real_ip_recursive off;
 
     client_max_body_size 8m;
     access_log off;
