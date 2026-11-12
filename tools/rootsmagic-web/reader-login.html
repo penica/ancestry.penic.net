@@ -1,0 +1,25 @@
+{% extends "reader-account-shell.html" %}
+{% block title %}Sign in{% endblock %}
+{% block extra_styles %}{% if passkeys_available %}<script defer src="/reader-passkeys.js"></script>{% endif %}{% endblock %}
+{% block content %}
+<h1>Sign in</h1>
+<form class="account-form" action="/login" method="post">
+  <input type="hidden" name="next" value="{{ next_path|default('/pedigree', true) }}">
+  {% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token }}">{% endif %}
+  <div class="account-field">
+    <label for="login-username">Username</label>
+    <input id="login-username" name="username" value="{{ username|default('', true) }}" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="64" required>
+  </div>
+  <div class="account-field">
+    <label for="login-password">Password</label>
+    <input id="login-password" name="password" type="password" autocomplete="current-password" maxlength="128" required>
+  </div>
+  <button type="submit">Sign in</button>
+</form>
+{% if passkeys_available %}
+<div class="passkey-sign-in" id="passkey-sign-in" hidden>
+  <button class="account-secondary" id="passkey-login" type="button">Sign in with a passkey</button>
+  <p class="account-message" id="passkey-status" role="status" hidden></p>
+</div>
+{% endif %}
+{% endblock %}

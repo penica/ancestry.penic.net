@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{% endblock %} · RootsMagic Reader</title>
+  <link rel="stylesheet" href="/reader.css">
+  <link rel="stylesheet" href="/reader-accounts.css">
+  {% block extra_styles %}{% endblock %}
+</head>
+<body>
+  <header class="masthead">
+    <nav class="shell bar account-nav" aria-label="Main">
+      <a class="brand" href="{{ '/pedigree' if current_user or system_local else '/login' }}">RootsMagic Reader</a>
+      {% include "reader-session.html" %}
+    </nav>
+  </header>
+  <main class="shell account-main {% block page_size %}account-reading{% endblock %}">
+    {% if error %}<p class="account-message" role="alert">{{ error }}</p>{% endif %}
+    {% if notice %}<p class="account-message" role="status">{{ notice }}</p>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

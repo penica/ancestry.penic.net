@@ -1,0 +1,163 @@
+.account-main { padding-block: var(--s8) var(--s12); }
+.account-reading { max-inline-size: 29rem; }
+.account-main h1 { overflow-wrap: anywhere; }
+.system-navigation { display: flex; flex-wrap: wrap; gap: var(--s2); border-block-end: 1px solid var(--rule); }
+.system-navigation a { display: inline-flex; align-items: center; min-block-size: var(--target); padding-inline: var(--s3); border-block-end: 2px solid transparent; text-decoration: none; }
+.system-navigation a[aria-current], .system-navigation a:hover { border-block-end-color: var(--accent); }
+.system-reading { max-inline-size: 30rem; }
+.setting-check { display: flex; align-items: center; gap: var(--s2); min-block-size: var(--target); margin: 0; }
+.setting-check input { min-block-size: 0; inline-size: 1.125rem; block-size: 1.125rem; flex: none; }
+.system-status { margin: 0; }
+.system-status dt { font-weight: 600; }
+.system-status dd { margin: 0 0 var(--s3); overflow-wrap: anywhere; }
+.account-main [hidden] { display: none !important; }
+.passkey-sign-in { margin-block-start: var(--s4); padding-block-start: var(--s4); border-block-start: 1px solid var(--rule); }
+.passkey-sign-in .account-message, #passkey-status { margin-block: var(--s3) 0; }
+.account-nav { gap: var(--s2) var(--s4); }
+.account-nav form { padding-block: var(--s1); }
+.account-nav > .reader-account { margin-block: var(--s1); }
+.account-menu-name { color: var(--muted); font-size: var(--small); padding: var(--s2) var(--s3); overflow-wrap: anywhere; }
+.account-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.account-secondary { color: var(--accent); background: var(--surface); border-color: var(--control); }
+.account-secondary:hover, .account-secondary:active { background: var(--wash); }
+
+.reader-masthead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s6);
+  padding-block: var(--s2);
+  font-size: var(--small, var(--type-detail));
+}
+.reader-identity {
+  display: grid;
+  align-content: center;
+  min-block-size: var(--target);
+  min-inline-size: 0;
+  max-inline-size: min(100%, 26rem);
+  font: 1.375rem/1.15 var(--display-font);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.reader-tree-name { margin-block-start: var(--s1); color: var(--muted); font: .875rem/1.35 system-ui, sans-serif; }
+.reader-links { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); }
+.reader-links a { display: inline-flex; align-items: center; min-block-size: var(--target); font-weight: 600; text-decoration: none; }
+.reader-my-person { padding-inline: var(--s2); border: 1px solid var(--rule); border-radius: var(--radius); background: var(--wash); }
+.reader-identity:hover > :first-child, .reader-links a:hover { text-decoration: underline; }
+.reader-tree-switch { display: flex; align-items: center; gap: var(--s2); inline-size: min(100%, 24rem); min-inline-size: 0; }
+.reader-tree-switch label { margin: 0; color: var(--muted); }
+.reader-tree-switch select {
+  flex: 1;
+  min-inline-size: 0;
+  min-block-size: var(--target);
+  border: 1px solid var(--control);
+  border-radius: var(--radius);
+  padding-inline: var(--s2);
+  color: var(--ink);
+  background: var(--surface);
+  font: inherit;
+}
+.reader-tree-switch button { flex: none; white-space: nowrap; }
+.reader-account { position: relative; margin-inline-start: auto; }
+.reader-account summary {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-block-size: var(--target);
+  padding: 0 var(--s3);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  color: var(--accent);
+  font-weight: 600;
+  list-style: none;
+  cursor: pointer;
+}
+.reader-account summary::-webkit-details-marker { display: none; }
+.reader-account summary::after {
+  content: "";
+  inline-size: .42rem;
+  block-size: .42rem;
+  margin-block-start: -.2rem;
+  border-block-end: 1px solid currentColor;
+  border-inline-end: 1px solid currentColor;
+  transform: rotate(45deg);
+}
+.reader-account[open] summary::after { margin-block-start: .2rem; transform: rotate(225deg); }
+.reader-account[open] summary, .reader-account summary:hover { background: var(--wash); }
+.reader-account-panel {
+  position: absolute;
+  z-index: 10;
+  inset-block-start: calc(100% + var(--s1));
+  inset-inline-end: 0;
+  inline-size: 13rem;
+  max-inline-size: calc(100vw - var(--s8));
+  padding: var(--s1);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 .25rem .75rem rgb(0 0 0 / .13);
+}
+.reader-account-panel a, .reader-account-panel button {
+  display: flex;
+  align-items: center;
+  inline-size: 100%;
+  min-block-size: var(--target);
+  padding: var(--s1) var(--s3);
+  border: 0;
+  border-radius: var(--radius);
+  color: var(--accent);
+  background: transparent;
+  font: inherit;
+  text-align: start;
+  text-decoration: none;
+}
+.reader-account-panel form { border-block-start: 1px solid var(--rule); padding-block-start: var(--s1); }
+.reader-account-panel button { cursor: pointer; }
+.reader-account-panel a:hover, .reader-account-panel button:hover { background: var(--wash); text-decoration: underline; }
+
+.account-form, .account-field { display: grid; }
+.account-form { gap: var(--s4); justify-items: start; }
+.account-field { gap: var(--s1); justify-self: stretch; min-inline-size: 0; }
+.account-field label, .account-invitation-link label { margin-block-end: 0; }
+.account-field input, .account-field select, .account-invitation-link input {
+  inline-size: 100%;
+  min-inline-size: 0;
+  color: var(--ink);
+  background: var(--surface);
+}
+.account-message {
+  padding: var(--s3) var(--s4);
+  margin-block: 0 var(--s6);
+  background: var(--wash);
+  border-radius: var(--radius);
+  overflow-wrap: anywhere;
+}
+.account-invitation-link input { margin-block-start: var(--s2); }
+.account-admin-layout { display: grid; gap: var(--s8); align-items: start; }
+.account-admin-layout section { min-inline-size: 0; margin-block-start: 0; }
+.account-role-help { margin-block-start: var(--s3); }
+.account-role-help p + p { margin-block-start: var(--s2); }
+.account-lists { display: grid; gap: var(--s8); min-inline-size: 0; }
+.account-list { list-style: none; padding: 0; margin: 0; border-block-start: 1px solid var(--rule); }
+.account-list li { border-block-end: 1px solid var(--rule); overflow-wrap: anywhere; }
+.account-list summary { padding-inline: var(--s2); }
+.account-record { display: grid; gap: var(--s4); padding: 0 var(--s2) var(--s4); }
+.account-memberships { display: grid; gap: var(--s1); margin: 0; }
+.account-memberships div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s1) var(--s3); }
+.account-memberships dd { margin: 0; color: var(--muted); }
+.account-access-form { display: grid; gap: var(--s2); justify-items: start; }
+.account-invite-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s3); padding: var(--s3) var(--s2); }
+
+@media (max-width: 56rem) {
+  .reader-tree-switch { inline-size: 100%; }
+}
+@media (max-width: 40rem) {
+  .reader-masthead { gap: var(--s1) var(--s4); }
+  .reader-identity { flex-basis: 100%; max-inline-size: 100%; }
+}
+@media (min-width: 52rem) {
+  .account-admin-layout { grid-template-columns: minmax(16rem, 21rem) minmax(0, 1fr); }
+}
+@media (min-width: 72rem) {
+  .account-access-form { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto; align-items: end; }
+}

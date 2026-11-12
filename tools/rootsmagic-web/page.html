@@ -1,0 +1,186 @@
+{% macro image_gallery(images) -%}
+<div class="record-images">
+  {% for image in images %}
+  <figure class="record-image">
+    {% if image.available %}
+    <a class="record-image-link" href="{{ tree.url('/api/v1/pedigree/media/' ~ image.id) }}" data-image-preview aria-haspopup="dialog">
+      <img src="{{ tree.url('/api/v1/pedigree/media/' ~ image.id) }}" alt="{{ image.caption or image.filename }}" loading="lazy" decoding="async">
+    </a>
+    {% endif %}
+    <figcaption>
+      {{ image.caption or image.filename }}
+      {% if not image.available %}<p class="muted">Image unavailable locally</p>{% endif %}
+    </figcaption>
+  </figure>
+  {% endfor %}
+</div>
+{%- endmacro %}
+{% macro family_person(person, marriage_date=none) -%}
+<li class="family-row">
+  <a class="family-link" href="{{ tree.url('/pedigree/people/' ~ person.id ~ '/record') }}">
+    <span class="family-role">{{ person.role }}</span>
+    <span class="family-name">{{ person.name }}</span>
+    <small class="family-id">#{{ person.id }}</small>
+    {% set dates = [
+      'Born ' ~ person.birth_date if person.birth_date else none,
+      'Died ' ~ person.death_date if person.death_date else none,
+      ('aged ' if person.death_date else 'Age at death ') ~ person.age_at_death if person.age_at_death else none,
+    ] | reject('none') | list %}
+    {% if dates %}
+    <span class="family-dates">{{ dates | join(' · ') }}</span>
+    {% endif %}
+    {% if marriage_date %}<span class="family-marriage">Married {{ marriage_date }}</span>{% endif %}
+  </a>
+</li>
+{%- endmacro %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} · RootsMagic Reader</title>
+  <link rel="stylesheet" href="/reader.css">
+  <link rel="stylesheet" href="/reader-accounts.css">
+  {% if pedigree_record and record %}
+  <link rel="stylesheet" href="/family.css">
+  <link rel="stylesheet" href="/image-preview.css">
+  <script defer src="/image-preview.js"></script>
+  {% endif %}
+</head>
+<body>
+  {% include "reader-masthead.html" %}
+  <main class="shell reading">
+    {% if result %}
+      <h1>People</h1>
+      <form action="/people" method="get" role="search">
+        <input type="hidden" name="tree" value="{{ tree.slug }}">
+        <label for="q">Name or RootsMagic ID</label>
+        <div class="search">
+          <input id="q" name="q" type="search" value="{{ q }}" maxlength="160" placeholder="Name or ID">
+          <button type="submit">Search</button>
+        </div>
+      </form>
+      <div class="result-head">
+        <p>{{ result.total }} {{ 'match' if result.total == 1 else 'matches' }}{% if result.people %} · {{ result.offset + 1 }}–{{ result.offset + result.people|length }} shown{% endif %}</p>
+        {% if q %}<a href="{{ tree.url('/people') }}">Clear search</a>{% endif %}
+      </div>
+      {% if result.people %}
+      <ul class="rows">
+        {% for person in result.people %}
+        <li><a href="{{ tree.url('/people/' ~ person.id) }}"><span>{{ person.name }}</span><small>#{{ person.id }}</small></a></li>
+        {% endfor %}
+      </ul>
+      {% elif result.total %}
+      <p>There are no results on this page.</p>
+      {% else %}
+      <p>Try another spelling, a shorter name, or a RootsMagic ID.</p>
+      {% endif %}
+      {% if previous or following %}
+      <nav class="pager" aria-label="Search results pages">
+        {% if previous %}<a href="/people?{{ previous }}">Previous</a>{% endif %}
+        {% if following %}<a href="/people?{{ following }}">Next</a>{% endif %}
+      </nav>
+      {% endif %}
+    {% elif record %}
+      <p class="label">Person record · #{{ record.id }}</p>
+      <h1>{{ record.name }}</h1>
+      {% if record.age_at_death %}<p>Age at death {{ record.age_at_death }}</p>{% endif %}
+      {% if record.note %}<p class="note">{{ record.note }}</p>{% endif %}
+      {% if pedigree_record and record.names|length > 1 %}
+      <section>
+        <h2>Recorded names</h2>
+        <ul>
+          {% for name in record.names %}
+          <li>{{ name.name }}{% if name.primary %} <small>Primary</small>{% endif %}</li>
+          {% endfor %}
+        </ul>
+      </section>
+      {% endif %}
+      <section>
+        <h2>Family</h2>
+        {% if pedigree_record and record.family %}
+        {% if record.family.parents or record.family.partnerships or record.family.siblings %}
+        <div class="family-groups">
+          {% if record.family.parents %}
+          <div class="family-group">
+            <ul class="family-rows">
+              {% for parent in record.family.parents %}{{ family_person(parent) }}{% endfor %}
+            </ul>
+          </div>
+          {% endif %}
+          {% for partnership in record.family.partnerships %}
+          <div class="family-group">
+            {% if partnership.partner %}
+            <ul class="family-rows">{{ family_person(partnership.partner, partnership.marriage_date) }}</ul>
+            {% else %}
+            <p class="family-unrecorded">Other parent not recorded{% if partnership.marriage_date %}<span class="family-marriage">Married {{ partnership.marriage_date }}</span>{% endif %}</p>
+            {% endif %}
+            {% if partnership.children %}
+            <ul class="family-rows family-children">
+              {% for child in partnership.children %}{{ family_person(child) }}{% endfor %}
+            </ul>
+            {% endif %}
+          </div>
+          {% endfor %}
+          {% if record.family.siblings %}
+          <div class="family-group">
+            <ul class="family-rows">
+              {% for sibling in record.family.siblings %}{{ family_person(sibling) }}{% endfor %}
+            </ul>
+          </div>
+          {% endif %}
+        </div>
+        {% else %}<p class="muted">No immediate family links recorded.</p>{% endif %}
+        {% elif record.relatives %}
+        <ul class="rows">
+          {% for relative in record.relatives %}
+          <li><a href="{{ tree.url('/pedigree/people/' ~ relative.id ~ '/record' if pedigree_record else '/people/' ~ relative.id) }}"><span>{{ relative.name }}</span><small>{{ relative.role }} · #{{ relative.id }}</small></a></li>
+          {% endfor %}
+        </ul>
+        {% else %}<p class="muted">No immediate family links recorded.</p>{% endif %}
+      </section>
+      <section>
+        <h2>Events</h2>
+        {% for event in record.events %}
+        <article class="event">
+          <h3>{{ event.kind }}{% if event.owner_type == 1 %} <small>Family event</small>{% endif %}</h3>
+          {% if event.date_display or event.place %}<p>{{ [event.date_display, event.place]|reject('none')|join(' · ') }}</p>{% endif %}
+          {% if pedigree_record and event.place_detail %}<p>{{ event.place_detail }}</p>{% endif %}
+          {% if event.details %}<p class="note">{{ event.details }}</p>{% endif %}
+          {% if event.note %}<p class="note">{{ event.note }}</p>{% endif %}
+          {% if record_images and record_images.events.get(event.id) %}
+          {{ image_gallery(record_images.events.get(event.id)) }}
+          {% endif %}
+          {% if event.citations %}
+          <details>
+            <summary>{{ event.citations|length }} {{ 'citation' if event.citations|length == 1 else 'citations' }}</summary>
+            <ul class="citations">
+              {% for citation in event.citations %}
+              <li>
+                <strong>{{ (citation.source or citation.name or 'Untitled source')|striptags }}</strong>
+                {% if citation.source and citation.name %}<p>{{ citation.name|striptags }}</p>{% endif %}
+                {% if citation.reference %}<p>Reference: {{ citation.reference }}</p>{% endif %}
+                {% if citation.footnote %}<p class="note">{{ citation.footnote|striptags }}</p>{% endif %}
+              </li>
+              {% endfor %}
+            </ul>
+          </details>
+          {% endif %}
+        </article>
+        {% else %}<p class="muted">No events recorded.</p>{% endfor %}
+      </section>
+      {% if record_images and record_images.profile %}
+      <section class="profile-images">
+        <h2>Other images</h2>
+        {{ image_gallery(record_images.profile) }}
+      </section>
+      {% endif %}
+    {% else %}
+      <h1>{{ title }}</h1>
+      <p>{{ message }}</p>
+      {% if tree %}<a class="back" href="{{ tree.url('/pedigree' if pedigree_record else '/people') }}">{{ 'Return to pedigree' if pedigree_record else 'Return to people' }}</a>{% endif %}
+    {% endif %}
+  </main>
+  {% if pedigree_record and record %}{% include "image-preview.html" %}{% endif %}
+</body>
+</html>

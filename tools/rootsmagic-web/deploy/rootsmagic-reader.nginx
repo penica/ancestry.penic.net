@@ -1,0 +1,24 @@
+server {
+    listen 80;
+    server_name lan-reader.example.org reader.example.org;
+    return 308 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name lan-reader.example.org reader.example.org;
+
+    ssl_certificate /etc/letsencrypt-rootsmagic-reader/live/lan-reader.example.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt-rootsmagic-reader/live/lan-reader.example.org/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    client_max_body_size 8m;
+    access_log off;
+
+    location / {
+        proxy_pass http://127.0.0.1:8765;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $remote_addr;
+    }
+}

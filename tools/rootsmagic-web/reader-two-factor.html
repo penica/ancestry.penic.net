@@ -1,0 +1,85 @@
+{% extends "reader-account-shell.html" %}
+{% block title %}Two-step verification{% endblock %}
+{% block extra_styles %}<link rel="stylesheet" href="/reader-profile.css">{% endblock %}
+
+{% macro current_password(id) -%}
+<div class="account-field">
+  <label for="{{ id }}">Current password</label>
+  <input id="{{ id }}" name="current_password" type="password" autocomplete="current-password" maxlength="128" required>
+</div>
+{%- endmacro %}
+
+{% macro verification_code(id) -%}
+<div class="account-field">
+  <label for="{{ id }}">Authenticator or recovery code</label>
+  <input id="{{ id }}" name="code" type="text" autocomplete="one-time-code" autocapitalize="none" spellcheck="false" maxlength="64" required>
+</div>
+{%- endmacro %}
+
+{% block content %}
+<h1>Two-step verification</h1>
+
+{% if stage == 'setup' %}
+<form class="account-form profile-panel profile-form" action="/account/security/confirm" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <p>Scan this QR code with your authenticator app or enter the setup key manually.</p>
+  <img src="/account/security/qr" alt="Authenticator setup QR code" width="176" height="176">
+  <div class="account-field">
+    <label for="mfa-setup-key">Setup key</label>
+    <input id="mfa-setup-key" type="text" value="{{ secret }}" readonly spellcheck="false" autocomplete="off">
+  </div>
+  <div class="account-field">
+    <label for="mfa-setup-code">Six-digit code from your app</label>
+    <input id="mfa-setup-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required>
+  </div>
+  <div class="account-actions profile-form-actions">
+    <button type="submit">Turn on verification</button>
+    <a class="back" href="/account/security">Cancel</a>
+  </div>
+</form>
+{% elif stage == 'recovery' %}
+<section class="profile-panel" aria-labelledby="mfa-recovery-heading">
+  <div class="account-form">
+    <h2 id="mfa-recovery-heading">Recovery codes</h2>
+    <p>Save these codes now. Each code works once in place of an authenticator code.</p>
+    <ul class="citations">
+      {% for code in recovery_codes %}<li><code>{{ code }}</code></li>{% endfor %}
+    </ul>
+    <a class="back" href="/account/security">Done</a>
+  </div>
+</section>
+{% else %}
+  {% if mfa_enabled %}
+  <div class="account-lists">
+    <p>Two-step verification is on.</p>
+    <details class="profile-panel">
+      <summary>Generate new recovery codes</summary>
+      <form class="account-form" action="/account/security/recovery" method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <p>Generating a new set invalidates your previous recovery codes.</p>
+        {{ current_password('mfa-recovery-password') }}
+        {{ verification_code('mfa-recovery-code') }}
+        <button type="submit">Generate new codes</button>
+      </form>
+    </details>
+    <details class="profile-panel">
+      <summary>Turn off two-step verification</summary>
+      <form class="account-form" action="/account/security/disable" method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        {{ current_password('mfa-disable-password') }}
+        {{ verification_code('mfa-disable-code') }}
+        <button type="submit">Turn off verification</button>
+      </form>
+    </details>
+  </div>
+  {% else %}
+  <form class="account-form profile-panel profile-form" action="/account/security/setup" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <p>Use an authenticator app to add a verification code when you sign in.</p>
+    {{ current_password('mfa-setup-password') }}
+    <button type="submit">Set up authenticator app</button>
+  </form>
+  {% endif %}
+  <a class="back" href="/account">Back to Account settings</a>
+{% endif %}
+{% endblock %}

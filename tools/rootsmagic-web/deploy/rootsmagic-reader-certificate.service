@@ -1,0 +1,8 @@
+[Unit]
+Description=Renew the RootsMagic Reader HTTPS certificate
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/certbot renew --quiet --cert-name lan-reader.example.org --config-dir /etc/letsencrypt-rootsmagic-reader --work-dir /var/lib/letsencrypt-rootsmagic-reader --logs-dir /var/log/letsencrypt-rootsmagic-reader --deploy-hook /usr/local/libexec/reload-reader-certificate

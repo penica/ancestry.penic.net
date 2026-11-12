@@ -1,0 +1,81 @@
+.family-groups,
+.family-group + .family-group,
+.family-rows.family-children {
+  border-block-start: 2px solid var(--control);
+}
+
+.family-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.family-row + .family-row {
+  border-block-start: 1px solid var(--rule);
+}
+
+.family-link {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s1) var(--s3);
+  min-block-size: var(--target);
+  padding: var(--s3);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.family-role,
+.family-name,
+.family-dates,
+.family-marriage {
+  grid-column: 1;
+  min-inline-size: 0;
+}
+
+.family-name {
+  font-weight: 600;
+}
+
+.family-role,
+.family-id {
+  color: var(--muted);
+  font-size: var(--small, .875rem);
+  font-weight: normal;
+}
+
+.family-id {
+  grid-column: 2;
+  grid-row: 1;
+  white-space: nowrap;
+}
+
+.family-dates,
+.family-marriage {
+  color: var(--ink);
+  font-weight: normal;
+}
+
+.family-link:hover,
+.family-link:active {
+  background: var(--wash);
+}
+
+.family-link:hover .family-name {
+  text-decoration: underline;
+}
+
+.family-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.family-unrecorded {
+  margin: 0;
+  padding: var(--s3);
+  color: var(--muted);
+}
+
+.family-unrecorded .family-marriage {
+  display: block;
+  margin-block-start: var(--s1);
+}

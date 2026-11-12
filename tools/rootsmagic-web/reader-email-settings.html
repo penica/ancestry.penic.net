@@ -1,0 +1,52 @@
+{% extends "reader-system.html" %}
+{% block title %}Email server · System settings{% endblock %}
+{% block system_content %}
+<section class="system-reading" aria-labelledby="mail-settings-title">
+  <h2 id="mail-settings-title">Email server</h2>
+  <form class="account-form" action="/system/email" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="account-field">
+      <label for="smtp-host">SMTP hostname</label>
+      <input id="smtp-host" name="host" value="{{ settings.host if settings else '' }}" maxlength="253" autocapitalize="none" spellcheck="false" required>
+    </div>
+    <div class="account-field">
+      <label for="smtp-port">Port</label>
+      <input id="smtp-port" name="port" type="number" value="{{ settings.port if settings else 587 }}" min="1" max="65535" required>
+    </div>
+    <div class="account-field">
+      <label for="smtp-security">Encryption</label>
+      <select id="smtp-security" name="security">
+        <option value="starttls"{% if not settings or settings.security == 'starttls' %} selected{% endif %}>STARTTLS</option>
+        <option value="tls"{% if settings and settings.security == 'tls' %} selected{% endif %}>TLS</option>
+      </select>
+    </div>
+    <div class="account-field">
+      <label for="smtp-sender">Sender email</label>
+      <input id="smtp-sender" name="sender" type="email" value="{{ settings.sender if settings else '' }}" maxlength="254" required>
+    </div>
+    <div class="account-field">
+      <label for="smtp-username">SMTP username</label>
+      <input id="smtp-username" name="username" value="{{ settings.username if settings else '' }}" maxlength="254" autocomplete="off" autocapitalize="none" spellcheck="false">
+    </div>
+    <div class="account-field">
+      <label for="smtp-password">SMTP password</label>
+      <input id="smtp-password" name="password" type="password" maxlength="512" autocomplete="new-password" aria-describedby="smtp-password-help">
+      <p class="muted" id="smtp-password-help">{{ 'Leave blank to keep the saved password for this server and username.' if password_saved else 'Enter a password if the mail server requires authentication.' }}</p>
+    </div>
+    <button type="submit">Save email server</button>
+  </form>
+</section>
+{% if settings %}
+<section class="system-reading" aria-labelledby="test-mail-title">
+  <h2 id="test-mail-title">Send a test email</h2>
+  <form class="account-form" action="/system/email/test" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="account-field">
+      <label for="smtp-recipient">Recipient email</label>
+      <input id="smtp-recipient" name="recipient" type="email" value="{{ current_user.email or '' }}" maxlength="254" required>
+    </div>
+    <button type="submit">Send test email</button>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,74 @@
+{% extends "reader-system.html" %}
+{% block title %}{{ section_title }} · System settings{% endblock %}
+{% macro field(name, label, value, minimum, maximum, hint='') -%}
+<div class="account-field">
+  <label for="setting-{{ name }}">{{ label }}</label>
+  <input id="setting-{{ name }}" type="number" name="{{ name }}" value="{{ value if value is not none else '' }}" min="{{ minimum }}" max="{{ maximum }}"{% if name != 'person' %} required{% endif %}{% if hint %} aria-describedby="help-{{ name }}"{% endif %}>
+  {% if hint %}<p class="muted" id="help-{{ name }}">{{ hint }}</p>{% endif %}
+</div>
+{%- endmacro %}
+{% block system_content %}
+<section class="system-reading" aria-labelledby="settings-section-title">
+  <h2 id="settings-section-title">{{ section_title }}</h2>
+  <form class="account-form" action="/system/{{ system_section }}" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    {% if system_section == 'trees' %}
+    <div class="account-field">
+      <label for="setting-tree">Default tree</label>
+      <select id="setting-tree" name="tree">
+        <option value="">Use the reader’s default tree</option>
+        {% for tree in trees %}<option value="{{ tree.slug }}"{% if tree.slug == default_tree %} selected{% endif %}>{{ tree.name }}</option>{% endfor %}
+      </select>
+    </div>
+    {{ field('person', 'Starting person’s RootsMagic ID', chart.person if default_tree else none, 1, 9223372036854775807, 'Leave blank to use the selected tree’s starting person.') }}
+    <div class="account-field">
+      <label for="setting-depth">Initial ancestry depth</label>
+      <select id="setting-depth" name="depth">
+        {% for depth in (3, 5, 8, 11) %}<option value="{{ depth }}"{% if chart.depth == depth %} selected{% endif %}>{{ depth }} generations</option>{% endfor %}
+      </select>
+    </div>
+    <label class="setting-check"><input type="checkbox" name="siblings"{% if chart.siblings %} checked{% endif %}> Show siblings by default</label>
+    <label class="setting-check"><input type="checkbox" name="children"{% if chart.children %} checked{% endif %}> Show children by default</label>
+    {% elif system_section == 'sources' %}
+    <div class="account-field">
+      <label for="setting-file">Preferred .rmtree file</label>
+      <input id="setting-file" name="file" value="{{ source_file }}" maxlength="1024" autocapitalize="none" spellcheck="false" aria-describedby="setting-file-help">
+      <p class="muted" id="setting-file-help">Leave blank to use the reader’s usual tree files.</p>
+    </div>
+    <div class="account-field">
+      <label for="setting-folder">Folder to scan for trees</label>
+      <input id="setting-folder" name="folder" value="{{ source_folder }}" maxlength="1024" autocapitalize="none" spellcheck="false" aria-describedby="setting-folder-help">
+      <p class="muted" id="setting-folder-help">Leave blank to turn off folder scanning.</p>
+    </div>
+    <label class="setting-check"><input type="checkbox" name="publish"{% if publish %} checked{% endif %}> Show Publish for the configured publishing file</label>
+    {% elif system_section == 'security' %}
+    {{ field('account_attempts', 'Sign-in attempts per account', security.account_attempts, 4, 20, 'Each attempt window lasts 15 minutes.') }}
+    {{ field('address_attempts', 'Sign-in attempts per verified visitor address', security.address_attempts, 12, 120, 'Applies to direct connections with a verified visitor address.') }}
+    {{ field('pdf_exports', 'PDF exports per account', security.pdf_exports, 1, 6, 'Each export window lasts 15 seconds.') }}
+    {% else %}
+    {{ field('retention', 'Daily backups to keep', backups.retention, 3, 60) }}
+    {% endif %}
+    <button type="submit">Save settings</button>
+  </form>
+</section>
+{% if system_section == 'security' %}
+<section class="system-reading" aria-labelledby="security-status-title">
+  <h2 id="security-status-title">Security status</h2>
+  <dl class="system-status">
+    <dt>Passkey sign-in</dt><dd><a href="{{ public_origin }}/login">{{ public_origin }}</a></dd>
+    <dt>Audit log</dt><dd>Enabled in the VM service journal</dd>
+    <dt>Proxy address handling</dt><dd>{{ 'Account limits apply through the shared proxy.' if shared_proxy else 'Visitor address limits apply to the connection address.' }}</dd>
+  </dl>
+</section>
+{% elif system_section == 'backups' %}
+<section class="system-reading" aria-labelledby="backup-status-title">
+  <h2 id="backup-status-title">Backup status</h2>
+  <dl class="system-status">
+    <dt>Schedule</dt><dd>Daily on the VM</dd>
+    <dt>Last verified backup</dt>
+    <dd>{% if latest %}<time datetime="{{ latest.verified_at.isoformat() }}">{{ latest.verified_at.strftime('%d %b %Y, %H:%M UTC') }}</time>{% else %}Waiting for a verified backup{% endif %}</dd>
+    {% if latest %}<dt>Included</dt><dd>Accounts and encryption key{% if latest.comments %}, comments{% endif %}{% if latest.settings %}, reader settings{% endif %}</dd>{% endif %}
+  </dl>
+</section>
+{% endif %}
+{% endblock %}

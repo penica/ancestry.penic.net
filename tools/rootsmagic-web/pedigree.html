@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="description" content="Explore the ancestry of a person in your local RootsMagic tree.">
+  {% if comments_token %}<meta name="reader-comments-token" content="{{ comments_token }}">{% endif %}
+  <title>Family pedigree · RootsMagic Reader</title>
+  <link rel="stylesheet" href="/pedigree.css">
+  <link rel="stylesheet" href="/family.css">
+  <link rel="stylesheet" href="/image-preview.css">
+  <link rel="stylesheet" href="/reader-accounts.css">
+  <script defer src="/image-preview.js"></script>
+  <script defer src="/pedigree-tools.js"></script>
+  <script defer src="/pedigree-worklist.js"></script>
+  <script defer src="/pedigree.js"></script>
+</head>
+<body data-tree="{{ tree.slug }}" data-starting-person="{{ starting_person }}">
+  {% with pedigree_header=true %}{% include "reader-masthead.html" %}{% endwith %}
+  <main class="shell">
+    <div class="page-header">
+      <h1>Family pedigree</h1>
+      <div class="controls">
+        <form id="pedigree-search" class="search" role="search">
+          <label class="visually-hidden" for="pedigree-query">Name or RootsMagic ID</label>
+          <div class="search-fields">
+            <input id="pedigree-query" type="search" name="q" placeholder="Name or ID" maxlength="160" required>
+            <button type="submit">Search</button>
+          </div>
+          <div class="search-results" id="search-panel" hidden>
+            <p class="search-status" id="search-status" role="status"></p>
+            <ul id="pedigree-results" aria-label="People found"></ul>
+          </div>
+        </form>
+        <button class="reset" id="pedigree-refresh" type="button">Refresh</button>
+        {% if publish_token %}
+        <button class="reset" id="pedigree-publish" type="button" data-publish-token="{{ publish_token }}">Publish</button>
+        {% endif %}
+        <a class="reset previous" id="pedigree-previous" role="link" aria-disabled="true">Previous person</a>
+        <a class="reset" id="pedigree-reset" href="{{ tree.url('/pedigree') }}">Reset view</a>
+      </div>
+    </div>
+    {% if publish_token %}
+    <p class="hint publish-status" id="pedigree-publish-status" role="status"></p>
+    {% endif %}
+    <section class="tree" aria-labelledby="pedigree-root">
+      <div class="tree-header">
+        <div class="root-summary">
+          <div class="root-title">
+            <h2 id="pedigree-root" tabindex="-1">Ancestry</h2>
+            <button class="reset" id="pedigree-details" type="button" aria-haspopup="dialog" aria-controls="person-details" disabled>View details</button>
+          </div>
+          <p id="pedigree-summary"></p>
+          <p id="pedigree-children" hidden></p>
+        </div>
+        <div class="chart-navigation" aria-label="Chart navigation">
+          <label for="pedigree-generation">Go to generation
+            <select id="pedigree-generation" disabled></select>
+          </label>
+          <button class="reset" id="pedigree-center" type="button" aria-label="Center on starting person" disabled>Center<span class="center-description">&nbsp;on starting person</span></button>
+          <label class="children-toggle"><input id="pedigree-show-children" type="checkbox"{% if chart_settings.children %} checked{% endif %} disabled> Show children</label>
+          <label class="children-toggle"><input id="pedigree-show-siblings" type="checkbox"{% if chart_settings.siblings %} checked{% endif %} disabled> Show siblings</label>
+          <span id="pedigree-children-status" class="hint" role="status" hidden></span>
+          <div class="chart-view-controls" role="group" aria-label="Chart view">
+            <button class="reset zoom-button" id="pedigree-zoom-out" type="button" aria-label="Zoom out" disabled>−</button>
+            <output id="pedigree-zoom-level" aria-label="Zoom level">100%</output>
+            <button class="reset zoom-button" id="pedigree-zoom-in" type="button" aria-label="Zoom in" disabled>+</button>
+            <button class="reset" id="pedigree-fit" type="button" disabled>Fit to view</button>
+            <button class="reset" id="pedigree-fullscreen" type="button" aria-pressed="false">Full screen</button>
+          </div>
+        </div>
+        <div class="pedigree-tool-row">
+          <details class="pedigree-tool-panel">
+            <summary>Chart tools</summary>
+            <div class="pedigree-tools">
+              <div class="pedigree-tool-group" role="group" aria-labelledby="pedigree-research-tools">
+                <h3 id="pedigree-research-tools">Research</h3>
+                <div class="chart-navigation">
+                  <button class="reset" id="pedigree-relationship" type="button" aria-haspopup="dialog" disabled>Find relationship</button>
+                  <button class="reset" id="pedigree-worklist" type="button" aria-haspopup="dialog" aria-controls="research-worklist" disabled>Research worklist</button>
+                  <label class="children-toggle"><input id="pedigree-show-gaps" type="checkbox" disabled> Show research gaps</label>
+                </div>
+                <p id="pedigree-gap-status" class="hint" role="status"></p>
+              </div>
+              <div class="pedigree-tool-group" role="group" aria-labelledby="pedigree-branch-tools">
+                <h3 id="pedigree-branch-tools">Branches</h3>
+                <div class="chart-navigation">
+                  <label for="pedigree-depth">Initial depth
+                    <select id="pedigree-depth">
+                    {% for depth in (3, 5, 8, 11) %}
+                    <option value="{{ depth }}"{% if chart_settings.depth == depth %} selected{% endif %}>{{ depth }} generations</option>
+                    {% endfor %}
+                    </select>
+                  </label>
+                </div>
+              </div>
+              <div class="pedigree-tool-group" role="group" aria-labelledby="pedigree-print-tools">
+                <h3 id="pedigree-print-tools">Print</h3>
+                <button class="reset" id="pedigree-print" type="button" disabled>Print PDF</button>
+              </div>
+            </div>
+          </details>
+          <p id="pedigree-hint" class="hint">Select any card to start from that person. Scroll to explore.</p>
+        </div>
+      </div>
+      <p id="pedigree-status" class="tree-status" role="status">Loading the pedigree…</p>
+      <div id="pedigree-viewport" class="viewport" tabindex="0" role="region" aria-label="Pedigree chart" aria-describedby="pedigree-hint" hidden></div>
+    </section>
+    <noscript><p>Enable JavaScript to explore the pedigree.</p></noscript>
+  </main>
+  <dialog class="person-details" id="person-details" aria-labelledby="person-details-title">
+    <div class="details-header">
+      <div class="details-heading">
+        <h2 id="person-details-title" tabindex="-1">Person details</h2>
+        <button class="reset" id="person-details-close" type="button" autofocus>Close</button>
+      </div>
+      <div class="details-actions">
+        <a class="reset previous" id="person-details-previous" role="link" aria-disabled="true">Previous person</a>
+        <button class="reset" id="person-details-refresh" type="button">Refresh</button>
+        <a id="person-details-record" target="_blank" rel="noopener">Open full record<span class="visually-hidden"> (new tab)</span></a>
+      </div>
+      <div class="details-feedback">
+        <p id="person-details-status" class="details-status" role="status"></p>
+        <button class="reset" id="person-details-retry" type="button" hidden>Try again</button>
+      </div>
+      <nav class="details-sections" aria-label="Person details sections">
+        <a href="#details-identity">Identity</a>
+        <a href="#details-timeline">Timeline</a>
+        <a href="#details-family">Family</a>
+        <a href="#details-notes">Notes</a>
+        {% if comments_token %}<a href="#details-comments">Comments</a>{% endif %}
+      </nav>
+    </div>
+    <div class="details-scroll">
+      <div id="person-details-body"></div>
+      {% if comments_token %}
+      <section class="details-section person-comments" id="person-comments" aria-labelledby="details-comments" hidden>
+        <h3 id="details-comments" tabindex="-1">Comments</h3>
+        <form class="comment-form" id="person-comment-form" method="post">
+          <label for="person-comment">Your comment</label>
+          <textarea id="person-comment" name="body" maxlength="2000" required></textarea>
+          <button class="reset comment-submit" type="submit">Add comment</button>
+          <p class="details-status" id="person-comment-status" role="status"></p>
+        </form>
+        <p class="details-status" id="person-comments-status" role="status"></p>
+        <ul class="comment-list" id="person-comments-list" aria-label="Person comments"></ul>
+        <button class="reset" id="person-comments-more" type="button" hidden>Show older comments</button>
+      </section>
+      {% endif %}
+    </div>
+  </dialog>
+  <dialog class="person-details" id="relationship-dialog" aria-labelledby="relationship-title">
+    <div class="details-header details-heading">
+      <h2 id="relationship-title">Find relationship</h2>
+      <form method="dialog"><button class="reset" type="submit">Close</button></form>
+    </div>
+    <div class="details-scroll">
+      <p id="relationship-target"></p>
+      <form id="relationship-search">
+        <label for="relationship-query">Starting person name or RootsMagic ID</label>
+        <div class="search-fields">
+          <input id="relationship-query" type="search" required maxlength="160" placeholder="Name or ID">
+          <button type="submit">Find person</button>
+        </div>
+      </form>
+      <p id="relationship-status" class="details-status" role="status"></p>
+      <ul id="relationship-people" class="relative-list"></ul>
+      <div id="relationship-results"></div>
+    </div>
+  </dialog>
+  <dialog class="person-details" id="research-worklist" aria-labelledby="worklist-title" aria-describedby="worklist-scope">
+    <div class="details-header">
+      <div class="details-heading">
+        <h2 id="worklist-title">Research worklist</h2>
+        <form method="dialog"><button class="reset" type="submit" autofocus>Close</button></form>
+      </div>
+      <div class="chart-navigation" aria-label="Research worklist filters">
+        <label for="worklist-category">Missing information
+          <select id="worklist-category">
+            <option value="all">All gaps</option>
+            <option value="parents">Parents</option>
+            <option value="dates">Dates</option>
+            <option value="places">Places</option>
+            <option value="citations">Citations</option>
+          </select>
+        </label>
+        <label for="worklist-generation">Generation
+          <select id="worklist-generation"><option value="all">All generations</option></select>
+        </label>
+      </div>
+      <p id="worklist-status" class="details-status" role="status"></p>
+      <button class="reset" id="worklist-retry" type="button" hidden>Try again</button>
+    </div>
+    <div class="details-scroll">
+      <p id="worklist-scope" class="hint">Checks people currently shown in the chart. Expand branches to investigate more generations. A repeated ancestor can appear on more than one card.</p>
+      <ul id="worklist-results" class="relative-list"></ul>
+      <button class="reset" id="worklist-more" type="button" hidden>Show more</button>
+    </div>
+  </dialog>
+  {% include "image-preview.html" %}
+</body>
+</html>

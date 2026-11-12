@@ -1,0 +1,15 @@
+{% extends "reader-account-shell.html" %}
+{% block title %}Verify your sign-in{% endblock %}
+{% block content %}
+<h1>Verify your sign-in</h1>
+<form class="account-form" action="/login/verify" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="next" value="{{ next_path|default('/pedigree', true) }}">
+  <div class="account-field">
+    <label for="mfa-login-code">Authenticator or recovery code</label>
+    <input id="mfa-login-code" name="code" type="text" autocomplete="one-time-code" autocapitalize="none" spellcheck="false" maxlength="64" required>
+  </div>
+  <button type="submit">Verify and sign in</button>
+</form>
+<a class="back" href="/login?next={{ next_path|default('/pedigree', true)|urlencode }}">Back to sign in</a>
+{% endblock %}

@@ -1,0 +1,18 @@
+[Unit]
+Description=Back up RootsMagic Reader state
+RequiresMountsFor=/srv/rootsmagic-reader
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/rootsmagic-reader/reader.env
+Environment=ROOTSMAGIC_BACKUP_KEY=/etc/rootsmagic-reader/mfa.key
+Environment=ROOTSMAGIC_BACKUP_DIR=/srv/rootsmagic-reader/state-backups
+ExecStart=/usr/bin/python3 /usr/local/libexec/rootsmagic-reader-backup-state
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+ReadWritePaths=/srv/rootsmagic-reader/state-backups /srv/rootsmagic-reader/backup-status

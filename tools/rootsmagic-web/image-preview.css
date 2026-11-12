@@ -1,0 +1,103 @@
+.image-preview {
+  inline-size: calc(100% - var(--s8));
+  max-inline-size: 88rem;
+  block-size: calc(100dvh - var(--s8));
+  max-block-size: calc(100dvh - var(--s8));
+  margin: auto;
+  padding: 0;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+}
+
+.image-preview[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.image-preview::backdrop {
+  background: color-mix(in srgb, var(--ink) 45%, transparent);
+}
+
+.image-preview-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s4);
+  padding: var(--s3) var(--s4);
+  border-block-end: 1px solid var(--rule);
+}
+
+.image-preview-header h2 {
+  flex: 1;
+  min-inline-size: 0;
+  max-block-size: 25dvh;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  margin: 0;
+  align-self: center;
+  font: inherit;
+  font-weight: 600;
+}
+
+.image-preview-header form { margin: 0; }
+
+.image-preview-close {
+  min-inline-size: var(--target);
+  min-block-size: var(--target);
+  padding: var(--s2) var(--s4);
+  color: var(--accent);
+  background: var(--surface);
+  border: 1px solid var(--control);
+  border-radius: var(--radius);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.image-preview-close:hover,
+.image-preview-close:active { background: var(--wash); }
+
+.image-preview-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.image-preview-body {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  min-block-size: 0;
+  min-inline-size: 0;
+  padding: var(--s3);
+  overflow: auto;
+  background: var(--canvas);
+}
+
+.image-preview-body img {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  min-block-size: 0;
+  object-fit: contain;
+}
+
+.image-preview-body [hidden] { display: none; }
+
+#image-preview-status {
+  margin: 0;
+  color: var(--muted);
+  text-align: center;
+}
+
+@media (max-width: 43rem) {
+  .image-preview {
+    inline-size: calc(100% - var(--s4));
+    block-size: calc(100dvh - var(--s4));
+    max-block-size: calc(100dvh - var(--s4));
+  }
+}
+
+@media print {
+  .image-preview[open] { display: none; }
+}

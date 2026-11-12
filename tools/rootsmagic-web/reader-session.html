@@ -1,0 +1,17 @@
+{% set account = reader_session.account if reader_session else current_user %}
+{% if account %}
+<details class="reader-account">
+  <summary>Account</summary>
+  <div class="reader-account-panel">
+    {% if current_user and not reader_session %}<p class="account-menu-name">{{ account.display_name or account.username }}</p>{% endif %}
+    {% if my_person %}<a href="{{ tree.url('/pedigree?person=' ~ my_person) }}">My person</a>{% endif %}
+    <a href="{{ tree.url('/account') if tree else '/account' }}">Account settings</a>
+    {% if account.administrator %}<a href="/system">System settings</a>{% endif %}
+    {% if tree and not pedigree_header %}<a href="/openapi.json">API schema</a>{% endif %}
+    <form action="/logout" method="post">
+      <input type="hidden" name="csrf_token" value="{{ reader_session.csrf_token if reader_session else csrf_token }}">
+      <button type="submit">Sign out</button>
+    </form>
+  </div>
+</details>
+{% endif %}

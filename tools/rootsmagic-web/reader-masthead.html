@@ -1,0 +1,33 @@
+<header class="masthead">
+  <nav class="shell reader-masthead" aria-label="Main">
+    {% set my_person = reader_session.account.person_for(tree.slug) if reader_session and tree else none %}
+    <a class="brand reader-identity" href="{{ tree.url('/pedigree') if tree else '/pedigree' }}">
+      <span>RootsMagic Reader</span>
+      {% if tree and trees|length <= 1 %}<span class="reader-tree-name">{{ tree.name }}</span>{% endif %}
+    </a>
+    {% if tree %}
+    <div class="reader-links">
+      {% if pedigree_header %}
+      <a href="{{ tree.url('/people') }}">People directory</a>
+      {% else %}
+      <a href="{{ tree.url('/pedigree') }}">Pedigree</a>
+      {% if not reader_session %}<a href="/openapi.json">API schema</a>{% endif %}
+      {% endif %}
+      {% if my_person %}<a class="reader-my-person" href="{{ tree.url('/pedigree?person=' ~ my_person) }}">My person</a>{% endif %}
+      {% if local_system %}<a href="/system">System settings</a>{% endif %}
+    </div>
+    {% endif %}
+    {% include "reader-session.html" %}
+    {% if trees|length > 1 %}
+    <form class="reader-tree-switch" action="{{ '/pedigree' if pedigree_header else '/people' }}" method="get">
+      <label for="tree-select">Tree</label>
+      <select id="tree-select" name="tree">
+        {% for choice in trees %}
+        <option value="{{ choice.slug }}"{% if choice.slug == tree.slug %} selected{% endif %}>{{ choice.name }}</option>
+        {% endfor %}
+      </select>
+      <button class="reset" type="submit">Open tree</button>
+    </form>
+    {% endif %}
+  </nav>
+</header>

@@ -1,0 +1,10 @@
+[Unit]
+Description=Check the RootsMagic Reader HTTPS certificate daily
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=45m
+Persistent=yes
+
+[Install]
+WantedBy=timers.target

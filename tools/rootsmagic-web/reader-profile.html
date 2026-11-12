@@ -1,0 +1,83 @@
+{% extends "reader-account-shell.html" %}
+{% set labels = {'name': 'Name', 'username': 'Username', 'email': 'Email', 'password': 'Password', 'person': 'My person'} %}
+{% set values = {'name': current_user.display_name, 'username': current_user.username, 'email': current_user.email} %}
+{% set selected_person = person_summary|default('', true) %}
+{% set heading = 'Change password' if field == 'password' else 'Edit ' ~ labels[field]|lower if field else 'Account settings' %}
+{% block title %}{{ heading }}{% endblock %}
+{% block extra_styles %}<link rel="stylesheet" href="/reader-profile.css">{% endblock %}
+{% block page_size %}profile-reading{% endblock %}
+
+{% block content %}
+<h1>{{ heading }}</h1>
+{% if field %}
+<form class="account-form profile-panel profile-form" action="/account/{{ field }}" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  {% if field != 'password' %}
+    {% set value = attempted_value if attempted_value is defined and attempted_value is not none else values[field] %}
+    <div class="account-field">
+      <label for="profile-value">{{ labels[field] }}</label>
+      {% if field == 'name' %}
+      <input id="profile-value" name="value" type="text" value="{{ value or '' }}" autocomplete="name" maxlength="120">
+      {% elif field == 'username' %}
+      <input id="profile-value" name="value" type="text" value="{{ value or '' }}" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="3" maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{2,63}" aria-describedby="profile-username-hint" required>
+      <p class="muted" id="profile-username-hint">Start with a letter or number. Use 3–64 letters, numbers, dots, underscores, or hyphens.</p>
+      {% elif field == 'email' %}
+      <input id="profile-value" name="value" type="email" value="{{ value or '' }}" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="254" aria-describedby="profile-email-hint">
+      <p class="muted" id="profile-email-hint">Optional contact information.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+  {% if field != 'name' %}
+  <div class="account-field">
+    <label for="profile-current-password">Current password</label>
+    <input id="profile-current-password" name="current_password" type="password" autocomplete="current-password" maxlength="128" required>
+  </div>
+  {% endif %}
+  {% if field == 'password' %}
+  <div class="account-field">
+    <label for="profile-value">New password</label>
+    <input id="profile-value" name="value" type="password" autocomplete="new-password" minlength="12" maxlength="128" aria-describedby="profile-password-hint" required>
+    <p class="muted" id="profile-password-hint">Use at least 12 characters.</p>
+  </div>
+  <div class="account-field">
+    <label for="profile-password-confirm">Confirm new password</label>
+    <input id="profile-password-confirm" name="password_confirm" type="password" autocomplete="new-password" minlength="12" maxlength="128" required>
+  </div>
+  {% endif %}
+  <div class="account-actions profile-form-actions">
+    <button type="submit">Save changes</button>
+    <a class="back" href="/account">Cancel</a>
+  </div>
+</form>
+{% else %}
+<section class="profile-panel" aria-labelledby="profile-information">
+  <h2 id="profile-information">Account information</h2>
+  <ul class="profile-rows">
+    {% for key in ['name', 'username', 'email', 'password', 'person'] %}
+    <li>
+      <a class="profile-link" href="{{ person_url|default('/account/person', true) if key == 'person' else '/account/' ~ key }}" aria-label="{{ 'Change password' if key == 'password' else 'Choose your person' if key == 'person' else 'Edit ' ~ labels[key]|lower }}"{% if key != 'password' %} aria-describedby="profile-{{ key }}-value"{% endif %}>
+        <span class="profile-label">{{ labels[key] }}</span>
+        <span class="profile-value{% if key == 'password' or (key == 'person' and not selected_person) or (key in values and not values[key]) %} profile-value-muted{% endif %}" id="profile-{{ key }}-value">
+          {{ 'Change password' if key == 'password' else (selected_person or 'Choose your record') if key == 'person' else values[key] or 'Not set' }}
+        </span>
+      </a>
+    </li>
+    {% endfor %}
+    {% if mfa_available|default(false) %}
+    <li>
+      <a class="profile-link" href="/account/security" aria-labelledby="profile-mfa-label" aria-describedby="profile-mfa-value">
+        <span class="profile-label" id="profile-mfa-label">Two-step verification</span>
+        <span class="profile-value" id="profile-mfa-value">{{ 'On' if current_user.mfa_enabled else 'Off' }}</span>
+      </a>
+    </li>
+    {% endif %}
+    <li>
+      <a class="profile-link" href="/account/passkeys">
+        <span class="profile-label">Passkeys</span>
+        <span class="profile-value">Manage passkeys</span>
+      </a>
+    </li>
+  </ul>
+</section>
+{% endif %}
+{% endblock %}

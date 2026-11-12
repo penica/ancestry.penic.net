@@ -1,0 +1,83 @@
+{% extends "reader-account-shell.html" %}
+{% block title %}My person{% endblock %}
+{% block extra_styles %}<link rel="stylesheet" href="/reader-profile.css">{% endblock %}
+{% block page_size %}profile-reading reading{% endblock %}
+
+{% block content %}
+<h1>My person</h1>
+{% if tree %}
+<section class="profile-panel" aria-labelledby="my-person-selection">
+  <h2 id="my-person-selection">Your record in {{ tree.name }}</h2>
+  {% if trees|length > 1 %}
+  <form class="tree-picker" action="/account/person" method="get">
+    <label for="my-person-tree">Tree</label>
+    <select id="my-person-tree" name="tree">
+      {% for candidate in trees %}
+      <option value="{{ candidate.slug }}"{% if candidate.slug == tree.slug %} selected{% endif %}>{{ candidate.name }}</option>
+      {% endfor %}
+    </select>
+    <button class="account-secondary" type="submit">Switch tree</button>
+  </form>
+  {% endif %}
+  {% if linked_id is not none %}
+    {% if linked %}
+    <p><strong>{{ linked.name }}</strong> <small>#{{ linked.id }}</small></p>
+    {% else %}
+    <p>Record #{{ linked_id }} is no longer available in this tree. Clear the link or choose another record.</p>
+    {% endif %}
+    <div class="account-actions">
+      {% if linked %}<a class="back" href="{{ tree.url('/pedigree?person=' ~ linked.id) }}">Open in pedigree</a>{% endif %}
+      <form action="{{ tree.url('/account/person') }}" method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="person_id" value="">
+        <button class="account-secondary" type="submit">Clear link</button>
+      </form>
+    </div>
+  {% else %}
+  <p>Choose your record to open it from the pedigree header.</p>
+  {% endif %}
+</section>
+<section aria-labelledby="my-person-search">
+  <h2 id="my-person-search">Find your record</h2>
+  <form action="/account/person" method="get" role="search">
+    <input type="hidden" name="tree" value="{{ tree.slug }}">
+    <label for="my-person-query">Name or RootsMagic ID</label>
+    <div class="search">
+      <input id="my-person-query" name="q" type="search" value="{{ q }}" maxlength="160" required>
+      <button type="submit">Search</button>
+    </div>
+  </form>
+  {% if q %}
+    {% if matches %}
+    <p class="result-head">{{ 'Showing the first ' ~ (matches|length) ~ ' matches. Narrow your search to find more.' if more else (matches|length) ~ (' match' if matches|length == 1 else ' matches') }}</p>
+    <ul class="account-list">
+      {% for person in matches %}
+      <li class="account-invite-row">
+        <div>
+          <strong>{{ person.name }}</strong> <small>#{{ person.id }}</small>
+          {% if person.birth_year or person.death_year %}
+          <p class="muted">{% if person.birth_year %}Born {{ person.birth_year }}{% endif %}{% if person.birth_year and person.death_year %} · {% endif %}{% if person.death_year %}Died {{ person.death_year }}{% endif %}</p>
+          {% endif %}
+        </div>
+        {% if person.id == linked_id %}
+        <small>Selected</small>
+        {% else %}
+        <form action="{{ tree.url('/account/person') }}" method="post">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="person_id" value="{{ person.id }}">
+          <button class="account-secondary" type="submit" aria-label="Select {{ person.name }} (#{{ person.id }})">Select</button>
+        </form>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="result-head">No records match your search.</p>
+    {% endif %}
+  {% endif %}
+</section>
+{% else %}
+<p>Ask an administrator for access to a tree before choosing your record.</p>
+{% endif %}
+<p><a class="back" href="{{ tree.url('/account') if tree else '/account' }}">Back to Account settings</a></p>
+{% endblock %}

@@ -1,0 +1,69 @@
+{% extends "reader-account-shell.html" %}
+{% block title %}Passkeys{% endblock %}
+{% block extra_styles %}{% if passkeys_available %}<script defer src="/reader-passkeys.js"></script>{% endif %}{% endblock %}
+
+{% macro confirm_fields(prefix) %}
+  <div class="account-field">
+    <label for="{{ prefix }}-password">Current password</label>
+    <input id="{{ prefix }}-password" name="password" type="password" autocomplete="current-password" maxlength="128" required>
+  </div>
+  {% if current_user.mfa_enabled %}
+  <div class="account-field">
+    <label for="{{ prefix }}-code">Authenticator or recovery code</label>
+    <input id="{{ prefix }}-code" name="code" autocomplete="one-time-code" spellcheck="false" maxlength="64" required>
+  </div>
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+<h1>Passkeys</h1>
+{% if passkeys_available %}
+<p class="muted">Use your device, password manager, or security key to sign in.</p>
+<section aria-labelledby="passkey-add-title">
+  <h2 id="passkey-add-title">Add a passkey</h2>
+  <form class="account-form" id="passkey-register" method="post" action="/account/passkeys/options" hidden>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="account-field">
+      <label for="passkey-name">Passkey name</label>
+      <input id="passkey-name" name="name" maxlength="80" required>
+    </div>
+    {{ confirm_fields('passkey-new') }}
+    <button type="submit">Create passkey</button>
+    <p class="account-message" id="passkey-status" role="status" hidden></p>
+  </form>
+  <p id="passkey-unavailable" class="muted">Passkey setup requires a browser that supports passkeys and JavaScript.</p>
+</section>
+{% if passkeys %}
+<section aria-labelledby="passkey-list-title">
+  <h2 id="passkey-list-title">Saved passkeys</h2>
+  <ul class="account-list">
+  {% for passkey in passkeys %}
+    {% set prefix = 'saved-' ~ loop.index %}
+    <li>
+      <details>
+        <summary>{{ passkey.name }}</summary>
+        <form class="account-form account-record" method="post" action="/account/passkeys/rename">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="credential" value="{{ passkey.id }}">
+          <div class="account-field">
+            <label for="{{ prefix }}-name">Passkey name</label>
+            <input id="{{ prefix }}-name" name="name" value="{{ passkey.name }}" maxlength="80" required>
+          </div>
+          {{ confirm_fields(prefix) }}
+          <div class="account-actions">
+            <button type="submit">Save name</button>
+            <button class="account-secondary" type="submit" formaction="/account/passkeys/remove" formnovalidate>Remove passkey</button>
+          </div>
+        </form>
+      </details>
+    </li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% else %}
+<p>Use the public reader address to set up or sign in with a passkey.</p>
+<a class="back" href="{{ public_origin }}/account/passkeys">Open passkey settings on the public reader</a>
+{% endif %}
+<a class="back" href="/account">Back to account settings</a>
+{% endblock %}

@@ -1,0 +1,30 @@
+[Unit]
+Description=RootsMagic Reader
+After=network.target
+RequiresMountsFor=/srv/rootsmagic-reader
+
+[Service]
+User=rootsmagic-reader
+Group=rootsmagic-reader
+WorkingDirectory=/srv/rootsmagic-reader/current
+EnvironmentFile=/etc/rootsmagic-reader/reader.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+LoadCredential=mfa.key:/etc/rootsmagic-reader/mfa.key
+Environment=ROOTSMAGIC_MFA_KEY_FILE=%d/mfa.key
+ExecStartPre=/usr/bin/test -f /srv/rootsmagic-reader/current/reader_mfa.py
+ExecStart=/usr/bin/env ROOTSMAGIC_REQUIRE_ACCOUNTS=1 /srv/rootsmagic-reader/current/.venv/bin/python -m uvicorn serve:app --host 127.0.0.1 --port 8765 --proxy-headers --forwarded-allow-ips=127.0.0.1 --no-access-log
+Restart=on-failure
+RestartSec=2s
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/srv/rootsmagic-reader/state
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,155 @@
+{% extends "reader-system.html" %}
+{% macro csrf() -%}
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+{%- endmacro %}
+{% macro tree_name(slug) -%}
+{%- set tree = trees|selectattr('slug', 'equalto', slug)|first|default(none) -%}
+{{ tree.name if tree else slug }}
+{%- endmacro %}
+{% macro tree_options(include_all=false) -%}
+{% for tree in trees %}<option value="{{ tree.slug }}">{{ tree.name }}</option>{% endfor %}
+{% if include_all %}<option value="">All trees</option>{% endif %}
+{%- endmacro %}
+{% block title %}Manage accounts{% endblock %}
+{% block system_content %}
+<section aria-labelledby="manage-accounts-title">
+<h2 id="manage-accounts-title">Manage accounts</h2>
+{% if invitation_url %}
+<section class="account-message account-invitation-link" aria-labelledby="invitation-link-title">
+  <h2 id="invitation-link-title">Invitation created</h2>
+  <label for="invitation-link">Share this one-time link with the invitee.</label>
+  <input id="invitation-link" value="{{ invitation_url }}" readonly spellcheck="false" autocomplete="off">
+</section>
+{% endif %}
+<div class="account-admin-layout">
+  <section aria-labelledby="create-invitation-title">
+    <h2 id="create-invitation-title">Invite a user</h2>
+    <form class="account-form" action="/admin/invite" method="post">
+      {{ csrf() }}
+      <div class="account-field">
+        <label for="new-username">Username</label>
+        <input id="new-username" name="username" autocomplete="off" autocapitalize="none" spellcheck="false" minlength="3" maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{2,63}" aria-describedby="username-format" required>
+        <p class="muted" id="username-format">Use 3–64 letters, numbers, dots, underscores, or hyphens. Start with a letter or number.</p>
+      </div>
+      <div class="account-field">
+        <label for="new-role">Role</label>
+        <select id="new-role" name="role">
+          <option value="reader">Reader</option>
+          <option value="administrator">Administrator</option>
+        </select>
+      </div>
+      <div class="account-field">
+        <label for="new-tree">Tree</label>
+        <select id="new-tree" name="tree_slug" aria-describedby="admin-scope">
+          {{ tree_options(true) }}
+        </select>
+        <p class="muted" id="admin-scope">Choose All trees for an Administrator.</p>
+      </div>
+      {% if mail_configured %}
+      <div class="account-field">
+        <label for="invite-recipient">Email invitation to</label>
+        <input id="invite-recipient" name="recipient" type="email" maxlength="254" aria-describedby="invite-recipient-help">
+        <p class="muted" id="invite-recipient-help">Optional. Leave blank to share the link yourself.</p>
+      </div>
+      {% endif %}
+      <button type="submit">Create invitation</button>
+    </form>
+    <details class="account-role-help">
+      <summary>About roles</summary>
+      <p class="muted">Readers can view their assigned trees. Administrators can view every tree and manage accounts and invitations.</p>
+      <p class="muted">Contributor and Editor roles are planned for submitting changes for review in RootsMagic on the Mac.</p>
+    </details>
+  </section>
+  <div class="account-lists">
+    <section aria-labelledby="account-list-title">
+      <h2 id="account-list-title">Accounts</h2>
+      {% if accounts %}
+      <ul class="account-list">
+        {% for account in accounts %}
+        <li>
+          <details>
+            <summary>
+              <strong>{{ account.username }}</strong>
+              {% if account.id == current_user.id %}<small> · You</small>{% endif %}
+              {% if account.administrator %}<small> · Administrator</small>{% endif %}
+              {% if account.disabled %}<small> · Disabled</small>{% endif %}
+            </summary>
+            <div class="account-record">
+              {% if account.memberships %}
+              <dl class="account-memberships" aria-label="Tree access">
+                {% for member in account.memberships %}
+                <div><dt>{{ tree_name(member.tree_slug) }}</dt><dd>{{ member.role|capitalize }}</dd></div>
+                {% endfor %}
+              </dl>
+              {% elif not account.administrator %}
+              <p class="muted">No tree access assigned.</p>
+              {% endif %}
+              {% if trees %}
+              <form class="account-access-form" action="/admin/account/{{ account.id }}/access" method="post">
+                {{ csrf() }}
+                <div class="account-field">
+                  <label for="tree-{{ account.id }}">Tree</label>
+                  <select id="tree-{{ account.id }}" name="tree_slug" required>
+                    <option value="" selected disabled>Choose a tree</option>
+                    {{ tree_options() }}
+                  </select>
+                </div>
+                <div class="account-field">
+                  <label for="role-{{ account.id }}">Role</label>
+                  <select id="role-{{ account.id }}" name="role" required>
+                    <option value="" selected disabled>Choose a role</option>
+                    <option value="reader">Reader</option>
+                    <option value="remove">Remove access</option>
+                  </select>
+                </div>
+                <button class="account-secondary" type="submit">Save tree access</button>
+              </form>
+              {% endif %}
+              <div class="account-actions">
+                <form action="/admin/account/{{ account.id }}/access" method="post">
+                  {{ csrf() }}
+                  <input type="hidden" name="tree_slug" value="">
+                  <input type="hidden" name="role" value="{{ 'remove-administrator' if account.administrator else 'administrator' }}">
+                  <button class="account-secondary" type="submit">{{ 'Revoke administrator' if account.administrator else 'Grant administrator' }}</button>
+                </form>
+                <form action="/admin/account/{{ account.id }}/status" method="post">
+                  {{ csrf() }}
+                  <input type="hidden" name="active" value="{{ 'true' if account.disabled else 'false' }}">
+                  <button class="account-secondary" type="submit">{{ 'Enable account' if account.disabled else 'Disable account' }}</button>
+                </form>
+              </div>
+            </div>
+          </details>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted">Invite a user to give them access.</p>
+      {% endif %}
+    </section>
+    <section aria-labelledby="pending-invitations-title">
+      <h2 id="pending-invitations-title">Pending invitations</h2>
+      {% if invitations %}
+      <ul class="account-list">
+        {% for invite in invitations %}
+        <li class="account-invite-row">
+          <div>
+            <strong>{{ invite.username }}</strong>
+            <p class="muted">{{ invite.role|capitalize }} · {{ tree_name(invite.tree_slug) if invite.tree_slug else 'All trees' }}</p>
+            {% if invite.expires_display %}<p class="muted">Expires {{ invite.expires_display }}</p>{% endif %}
+          </div>
+          <form action="/admin/invite/{{ invite.id }}/revoke" method="post">
+            {{ csrf() }}
+            <button class="account-secondary" type="submit" aria-label="Revoke invitation for {{ invite.username }}">Revoke</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted">No invitations are awaiting acceptance.</p>
+      {% endif %}
+    </section>
+  </div>
+</div>
+</section>
+{% endblock %}

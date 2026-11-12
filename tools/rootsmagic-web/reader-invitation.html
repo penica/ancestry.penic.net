@@ -1,0 +1,30 @@
+{% extends "reader-account-shell.html" %}
+{% block title %}Accept invitation{% endblock %}
+{% block content %}
+<h1>Accept invitation</h1>
+{% if token %}
+<form class="account-form" action="/invite" method="post">
+  <input type="hidden" name="token" value="{{ token }}">
+  {% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token }}">{% endif %}
+  {% if username %}
+  <div class="account-field">
+    <label for="invite-account-username">Username</label>
+    <input id="invite-account-username" value="{{ username }}" autocomplete="username" readonly>
+  </div>
+  {% endif %}
+  <div class="account-field">
+    <label for="invite-password">Create password</label>
+    <input id="invite-password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" aria-describedby="password-length" required>
+    <p class="muted" id="password-length">Use at least 12 characters.</p>
+  </div>
+  <div class="account-field">
+    <label for="invite-confirm">Confirm password</label>
+    <input id="invite-confirm" name="password_confirm" type="password" autocomplete="new-password" minlength="12" maxlength="128" required>
+  </div>
+  <button type="submit">Set password</button>
+</form>
+{% else %}
+<p>Ask an administrator for a new invitation.</p>
+<a class="back" href="/login">Sign in</a>
+{% endif %}
+{% endblock %}

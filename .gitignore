@@ -1,0 +1,17 @@
+*.rmtree
+*.rmtree-*
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+.env
+.env.*
+*.key
+*.pem
+*.pdf
+settings.json
+__pycache__/
+.venv/
+.ruff_cache/
+.DS_Store
