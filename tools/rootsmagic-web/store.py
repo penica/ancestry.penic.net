@@ -12,9 +12,12 @@ from typing import TYPE_CHECKING, Final, Literal, NewType
 
 from pydantic import BaseModel, ConfigDict
 
+from reader_external import PUBLIC_VIEWS, ExternalTree, authorize_external
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from pathlib import Path
+
+    from reader_external import DatabasePath
 
 PersonID = NewType("PersonID", int)
 NAME: Final = """
@@ -98,6 +101,7 @@ PERSON: Final = f"""
     FROM people JOIN PersonTable p ON p.PersonID = id WHERE id = :id
 """  # noqa: S608
 DATE_CODE: Final = re.compile(r"D([.BAR-])\+(\d{8})\.([.A])\+(\d{8})\.\.")
+PUBLIC_SIMPLE_DATE: Final = re.compile(r"T?([0-9]{4})(?:-([0-9]{2})(?:-([0-9]{2}))?)?")
 MONTHS: Final = (
     "January",
     "February",
@@ -287,19 +291,57 @@ def join_name(*parts: str | None) -> str:
     return " ".join(part.strip() for part in parts if part and part.strip())
 
 
+def public_date(value: str | None) -> str | None:
+    """Expose structured dates and simple calendar dates without date-field notes."""
+    if not isinstance(value, str):
+        return None
+    if DATE_CODE.fullmatch(value):
+        return value if display_date(value) != value else None
+    if match := PUBLIC_SIMPLE_DATE.fullmatch(value):
+        digits = match[1] + (match[2] or "00") + (match[3] or "00")
+        if calendar_label(digits):
+            return value
+    return None
+
+
+def public_year(value: str | None) -> int | None:
+    """Get the year from a date already screened by the public event view."""
+    if not value:
+        return None
+    return int(value[3:7] if value.startswith("D") else value.removeprefix("T")[:4])
+
+
+def compare_names(left: str, right: str) -> int:
+    left, right = fold(left), fold(right)
+    return (left > right) - (left < right)
+
+
 @contextmanager
-def connect(path: Path) -> Iterator[sqlite3.Connection]:
+def connect(path: DatabasePath) -> Iterator[sqlite3.Connection]:
     """Read one consistent view without opening the source for writing."""
-    with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)) as db:
+    file = path.file if isinstance(path, ExternalTree) else path
+    with closing(sqlite3.connect(f"{file.resolve().as_uri()}?mode=ro", uri=True)) as db:
         db.row_factory = sqlite3.Row
         db.create_function("fold", 1, fold, deterministic=True)
         db.create_function("join_name", -1, join_name, deterministic=True)
+        if isinstance(path, ExternalTree):
+            if db.execute(
+                "SELECT 1 FROM main.sqlite_schema WHERE lower(name) = 'json_each'"
+            ).fetchone():
+                raise sqlite3.DatabaseError(
+                    "A tree table conflicts with the search projection."
+                )
+            db.create_collation("RMNOCASE", compare_names)
+            db.create_function("reader_public_date", 1, public_date, deterministic=True)
+            db.create_function("reader_public_year", 1, public_year, deterministic=True)
+            db.executescript(PUBLIC_VIEWS)
+            db.set_authorizer(authorize_external)
         _ = db.execute("PRAGMA query_only = ON")
         _ = db.execute("BEGIN")
         yield db
 
 
-def search(path: Path, query: str, limit: int, offset: int) -> Directory:
+def search(path: DatabasePath, query: str, limit: int, offset: int) -> Directory:
     """Find people by ID, primary name or alternate name."""
     rows, total = search_rows(path, query, limit, offset)
     return Directory(
@@ -311,7 +353,7 @@ def search(path: Path, query: str, limit: int, offset: int) -> Directory:
 
 
 def pedigree_search(
-    path: Path,
+    path: DatabasePath,
     query: str,
     limit: int,
     offset: int,
@@ -327,7 +369,7 @@ def pedigree_search(
 
 
 def search_rows(
-    path: Path,
+    path: DatabasePath,
     query: str,
     limit: int,
     offset: int,
@@ -352,7 +394,9 @@ def search_rows(
         return rows, int(total_row[0])
 
 
-def person_names(path: Path, people: tuple[PersonID, ...]) -> dict[PersonID, str]:
+def person_names(
+    path: DatabasePath, people: tuple[PersonID, ...]
+) -> dict[PersonID, str]:
     """Find primary names for the current page of reader state."""
     if not people:
         return {}
@@ -365,7 +409,7 @@ def person_names(path: Path, people: tuple[PersonID, ...]) -> dict[PersonID, str
         return {PersonID(row["id"]): row["name"] for row in rows}
 
 
-def profile(path: Path, person_id: PersonID) -> Profile | None:
+def profile(path: DatabasePath, person_id: PersonID) -> Profile | None:
     """Read one person, immediate relatives and personal or family events."""
     with connect(path) as db:
         return read_profile(db, person_id)

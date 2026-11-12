@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from ipaddress import ip_address
 from pathlib import Path
 from secrets import compare_digest, token_urlsafe
@@ -15,7 +15,7 @@ from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse, PlainTextResponse, RedirectResponse
 
-from reader_accounts import Accounts, Session
+from reader_accounts import Accounts, Role, Session
 from tree_catalog import Tree, available_trees
 
 if TYPE_CHECKING:
@@ -182,7 +182,22 @@ class ReaderAccess:
         session = current_session(request)
         if session is None:
             return ()
-        return tuple(tree for tree in catalog if session.account.role_for(tree.slug))
+        return tuple(
+            replace(tree, external=role is Role.EXTERNAL_READER)
+            for tree in catalog
+            if (role := session.account.role_for(tree.slug)) is not None
+        )
+
+    def family_trees(self, request: Request) -> tuple[Tree, ...]:
+        return tuple(tree for tree in self.visible_trees(request) if not tree.external)
+
+
+def require_family_tree(tree: Tree) -> None:
+    """Keep private collaboration and evidence on family memberships."""
+    if tree.external:
+        raise HTTPException(
+            status_code=403, detail="This feature is available with family access."
+        )
 
 
 def failure(message: str, status: int, *, api: bool) -> Response:

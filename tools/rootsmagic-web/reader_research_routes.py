@@ -60,7 +60,11 @@ def follow_up_router(
         updated: Annotated[str, Query(max_length=12)] = "",
     ) -> HTMLResponse:
         actor = reader_actor(request)
-        catalog = access.visible_trees(request)
+        catalog = access.family_trees(request)
+        if not catalog:
+            raise HTTPException(
+                status_code=403, detail="Follow-ups are available with family access."
+            )
         selected = tree_filter(catalog, tree)
         entries = store.page(
             actor.id,
@@ -73,7 +77,7 @@ def follow_up_router(
         items = entries[:PAGE_SIZE]
         names = {
             item.slug: person_names(
-                item.path,
+                item.database,
                 tuple(
                     {entry.person_id for entry in items if entry.tree_slug == item.slug}
                 ),
@@ -114,7 +118,7 @@ def follow_up_router(
     ) -> RedirectResponse:
         form = await read_form(request)
         actor = verify_reader_mutation(request, form.get("csrf_token", ""))
-        catalog = access.visible_trees(request)
+        catalog = access.family_trees(request)
         item_tree = form.get("item_tree", "")
         selected = next(
             (candidate for candidate in catalog if candidate.slug == item_tree), None

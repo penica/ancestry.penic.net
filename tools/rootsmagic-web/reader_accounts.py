@@ -18,6 +18,12 @@ from threading import BoundedSemaphore
 from time import time
 from typing import TYPE_CHECKING, Final, Literal, NewType, assert_never
 
+from reader_membership_schema import (
+    INVITATIONS,
+    MEMBERSHIPS,
+    has_external_role,
+    migrate_roles,
+)
 from reader_mfa import (
     MFA_LOGIN_SECONDS,
     MFA_SCHEMA,
@@ -73,7 +79,7 @@ REQUIRED_TABLES: Final = frozenset(
         "reader_passkey_challenges",
     }
 )
-SCHEMA: Final = """
+SCHEMA: Final = f"""
 CREATE TABLE IF NOT EXISTS reader_mail_settings (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     configuration TEXT NOT NULL, password BLOB
@@ -85,12 +91,7 @@ CREATE TABLE IF NOT EXISTS reader_accounts (
     disabled INTEGER NOT NULL DEFAULT 0 CHECK (disabled IN (0, 1)),
     display_name TEXT, email TEXT
 );
-CREATE TABLE IF NOT EXISTS reader_memberships (
-    account_id INTEGER NOT NULL REFERENCES reader_accounts(id) ON DELETE CASCADE,
-    tree_slug TEXT NOT NULL,
-    role TEXT NOT NULL CHECK (role = 'reader'),
-    PRIMARY KEY (account_id, tree_slug)
-);
+{MEMBERSHIPS};
 CREATE TABLE IF NOT EXISTS reader_person_links (
     account_id INTEGER NOT NULL REFERENCES reader_accounts(id) ON DELETE CASCADE,
     tree_slug TEXT NOT NULL,
@@ -103,13 +104,7 @@ CREATE TABLE IF NOT EXISTS reader_sessions (
     csrf_token TEXT NOT NULL, expires_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS reader_sessions_account ON reader_sessions(account_id);
-CREATE TABLE IF NOT EXISTS reader_invitations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, token_hash BLOB NOT NULL UNIQUE,
-    username TEXT NOT NULL UNIQUE, tree_slug TEXT,
-    role TEXT NOT NULL CHECK (role IN ('reader', 'administrator')),
-    expires_at INTEGER NOT NULL,
-    CHECK ((role = 'administrator') = (tree_slug IS NULL))
-);
+{INVITATIONS};
 CREATE TABLE IF NOT EXISTS reader_login_attempts (
     bucket BLOB PRIMARY KEY NOT NULL,
     expires_at INTEGER NOT NULL, attempts INTEGER NOT NULL
@@ -134,7 +129,12 @@ CREATE TABLE IF NOT EXISTS reader_passkey_challenges (
 
 class Role(StrEnum):
     READER = "reader"
+    EXTERNAL_READER = "external_reader"
     ADMINISTRATOR = "administrator"
+
+    @property
+    def label(self) -> str:
+        return self.value.replace("_", " ").title()
 
 
 class AccountsError(RuntimeError):
@@ -185,7 +185,7 @@ class Account:
 
     def person_for(self, tree_slug: str) -> int | None:
         """Return the account's own person in a tree it may view."""
-        if self.role_for(tree_slug) is None:
+        if self.role_for(tree_slug) not in (Role.READER, Role.ADMINISTRATOR):
             return None
         return next(
             (
@@ -548,12 +548,20 @@ class Accounts:
                     "SELECT name FROM sqlite_schema WHERE type = 'table'"
                 )
             }
+            roles_ready = all(
+                has_external_role(db, table)
+                for table in ("reader_memberships", "reader_invitations")
+            )
         if app_id != APPLICATION_ID:
             message = "ROOTSMAGIC_ACCOUNTS_DB must point to a reader accounts database."
             raise AccountsError(message)
         if missing := REQUIRED_TABLES - tables:
             message = f"Run the reader account migration. Missing tables: {', '.join(sorted(missing))}."
             raise AccountsError(message)
+        if not roles_ready:
+            raise AccountsError(
+                "Run the reader account migration for External Reader access."
+            )
 
     def initialize(self) -> None:
         """Create or migrate the private sidecar, refusing other databases."""
@@ -575,6 +583,7 @@ class Accounts:
             for statement in (SCHEMA + MFA_SCHEMA).split(";"):
                 if statement.strip():
                     db.execute(statement)
+            migrate_roles(db)
             columns = {
                 row["name"] for row in db.execute("PRAGMA table_info(reader_accounts)")
             }
@@ -1027,7 +1036,7 @@ class Accounts:
             raise AccountsError(message)
         with self._connect(write=True) as db:
             account = _read_account(db, _require_session_row(db, token_hash))
-            if account.role_for(slug) is None:
+            if account.role_for(slug) not in (Role.READER, Role.ADMINISTRATOR):
                 message = "This account does not have access to the selected tree."
                 raise AccountsError(message)
             if person_id is None:

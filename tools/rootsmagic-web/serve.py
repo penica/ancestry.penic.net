@@ -62,7 +62,7 @@ from pedigree_store import (
     pedigree_details,
     read_pedigree_details,
 )
-from reader_access import ReaderAccess, current_session, read_json
+from reader_access import ReaderAccess, current_session, read_json, require_family_tree
 from reader_account_routes import account_router
 from reader_chart_links import (
     TOKEN_PATTERN,
@@ -70,7 +70,7 @@ from reader_chart_links import (
     ChartLinkDraft,
     ChartLinkURL,
     ChartLinks,
-    record_revision,
+    read_shared_chart,
 )
 from reader_comments import (
     Comment,
@@ -82,6 +82,8 @@ from reader_comments import (
     read_comment,
     reader_actor,
 )
+from reader_external import ExternalTree
+from reader_external_pdf import external_print_chart
 from reader_follow_ups import FollowUp, FollowUpDraft, FollowUps
 from reader_print_limits import PDF_BODY_LIMIT, print_slot, validate_print
 from reader_research_routes import follow_up_router
@@ -196,7 +198,8 @@ def local_publish_source(request: Request, tree: Tree) -> Path | None:
     """Limit publishing to the configured working tree in the Mac reader."""
     publish = site_settings().sources.publish
     if (
-        sys.platform != "darwin"
+        tree.external
+        or sys.platform != "darwin"
         or not (
             os.environ.get("ROOTSMAGIC_ENABLE_PUBLISH") == "1"
             if publish is None
@@ -396,13 +399,13 @@ def api_people(
     tree: SelectedTree, q: QueryText = "", limit: Limit = PAGE_SIZE, offset: Offset = 0
 ) -> Directory:
     """Search by RootsMagic ID or name, including alternate names."""
-    return search(tree.path, q, limit, offset)
+    return search(tree.database, q, limit, offset)
 
 
 @app.get("/api/v1/people/{person_id}", tags=["People"])
 def api_person(person_id: RecordID, tree: SelectedTree) -> Profile:
     """Get a person, their immediate family, events and event citations."""
-    record = profile(tree.path, PersonID(person_id))
+    record = profile(tree.database, PersonID(person_id))
     if record is None:
         raise HTTPException(status_code=404, detail="Person not found")
     return record
@@ -419,7 +422,7 @@ def api_pedigree_people(
     query = q.strip()
     if query.startswith("#") and query[1:].isdigit():
         query = query[1:]
-    return pedigree_search(tree.path, query, limit, offset)
+    return pedigree_search(tree.database, query, limit, offset)
 
 
 @app.get("/api/v1/pedigree/{person_id}", tags=["Pedigree"])
@@ -429,7 +432,7 @@ def api_pedigree(
     generations: Generations = PEDIGREE_GENERATIONS,
 ) -> Pedigree:
     """Get a person, their siblings and the requested generations of ancestry."""
-    chart = pedigree(tree.path, PersonID(person_id), generations)
+    chart = pedigree(tree.database, PersonID(person_id), generations)
     if chart is None:
         raise HTTPException(status_code=404, detail="Person not found")
     return chart
@@ -499,15 +502,8 @@ def shared_chart(
             status_code=404,
             detail="This shared chart is unavailable. Check that you have access to its tree.",
         )
-    revision = record_revision(tree, link.person_id)
-    if revision is None:
-        raise HTTPException(
-            status_code=410,
-            detail="The starting record for this shared chart is no longer available.",
-        )
-    return render_pedigree(
-        request, tree, shared=link, shared_changed=revision != link.revision
-    )
+    shared, changed = read_shared_chart(tree, link)
+    return render_pedigree(request, tree, shared=shared, shared_changed=changed)
 
 
 @contextmanager
@@ -550,7 +546,7 @@ def api_publish(
 @app.get("/api/v1/pedigree/{person_id}/details", tags=["Pedigree"])
 def api_pedigree_details(person_id: RecordID, tree: SelectedTree) -> Profile:
     """Get the selected chart person's record from the same live database."""
-    record = pedigree_details(tree.path, PersonID(person_id))
+    record = pedigree_details(tree.database, PersonID(person_id))
     if record is None:
         raise HTTPException(status_code=404, detail="Person not found")
     return record
@@ -565,6 +561,7 @@ def api_comments(
     before: BeforeComment = None,
 ) -> CommentPage:
     """List comments on a person in the selected tree."""
+    require_family_tree(tree)
     cursor = CommentID(before) if before is not None else None
     return comment_store.page(
         tree, reader_actor(request), PersonID(person_id), limit, cursor
@@ -576,6 +573,7 @@ async def api_add_comment(
     request: Request, person_id: RecordID, tree: SelectedTree
 ) -> Comment:
     """Append a plain-text comment as the current reader."""
+    require_family_tree(tree)
     author = mutation_actor(request)
     draft = await read_comment(request)
     return await run_in_threadpool(
@@ -588,6 +586,7 @@ async def api_edit_comment(
     request: Request, person_id: RecordID, comment_id: RecordID, tree: SelectedTree
 ) -> Comment:
     """Edit a comment as its original author."""
+    require_family_tree(tree)
     actor = mutation_actor(request)
     draft = await read_comment(request)
     return await run_in_threadpool(
@@ -609,6 +608,7 @@ def api_remove_comment(
     request: Request, person_id: RecordID, comment_id: RecordID, tree: SelectedTree
 ) -> Response:
     """Remove a comment as a reader administrator."""
+    require_family_tree(tree)
     comment_store.remove(
         tree, PersonID(person_id), CommentID(comment_id), mutation_actor(request)
     )
@@ -620,9 +620,12 @@ def recent_comments(
     request: Request, tree: SelectedTree, before: BeforeComment = None
 ) -> HTMLResponse:
     """Show the latest comments for the current tree."""
+    require_family_tree(tree)
     cursor = CommentID(before) if before is not None else None
     page = comment_store.page(tree, reader_actor(request), None, 30, cursor)
-    people = person_names(tree.path, tuple({item.person_id for item in page.comments}))
+    people = person_names(
+        tree.database, tuple({item.person_id for item in page.comments})
+    )
     return HTMLResponse(
         templates.get_template("reader-recent-comments.html").render(
             tree=tree,
@@ -640,7 +643,7 @@ def api_relationship(
     from_id: Annotated[int, Query(ge=1, le=2**63 - 1)],
     tree: SelectedTree,
 ) -> RelationshipPaths:
-    result = relationship_paths(tree.path, PersonID(from_id), PersonID(person_id))
+    result = relationship_paths(tree.database, PersonID(from_id), PersonID(person_id))
     if result is None:
         raise HTTPException(status_code=404, detail="Person not found")
     return result
@@ -650,8 +653,9 @@ def api_relationship(
 def api_research_gaps(
     request: Request, query: GapRequest, tree: SelectedTree
 ) -> ResearchGaps:
+    require_family_tree(tree)
     person_ids = tuple(map(PersonID, query.person_ids))
-    result = research_gaps(tree.path, person_ids)
+    result = research_gaps(tree.database, person_ids)
     if not query.include_follow_ups:
         return result
     saved = follow_up_store.statuses(tree, reader_actor(request).id, person_ids)
@@ -660,6 +664,7 @@ def api_research_gaps(
 
 @app.post("/api/v1/pedigree/follow-ups", tags=["Pedigree"], status_code=201)
 async def api_save_follow_up(request: Request, tree: SelectedTree) -> FollowUp:
+    require_family_tree(tree)
     actor = mutation_actor(request)
     body = await read_json(request, 512)
     try:
@@ -673,6 +678,7 @@ async def api_save_follow_up(request: Request, tree: SelectedTree) -> FollowUp:
 
 @app.get("/api/v1/pedigree/{person_id}/evidence", tags=["Pedigree"])
 def api_evidence(person_id: RecordID, tree: SelectedTree) -> PersonEvidence:
+    require_family_tree(tree)
     result = person_evidence(tree.path, PersonID(person_id))
     if result is None:
         raise HTTPException(status_code=404, detail="Person not found")
@@ -681,6 +687,7 @@ def api_evidence(person_id: RecordID, tree: SelectedTree) -> PersonEvidence:
 
 @app.get("/api/v1/pedigree/media/{media_id}", tags=["Pedigree"])
 def api_media(media_id: RecordID, tree: SelectedTree) -> FileResponse:
+    require_family_tree(tree)
     file = media_file(tree.path, media_id)
     if file is None:
         raise HTTPException(status_code=404, detail="Linked media is unavailable")
@@ -709,7 +716,7 @@ async def api_print(request: Request, tree: SelectedTree) -> Response:
             raise HTTPException(
                 status_code=422, detail="The pedigree for this PDF is invalid."
             ) from error
-        data = await run_in_threadpool(print_pedigree, payload)
+        data = await run_in_threadpool(print_pedigree, payload, tree)
     filename = f"{tree.slug}-pedigree-{payload.chart.root.person.id}-a0-roll.pdf"
     return Response(
         data,
@@ -718,15 +725,19 @@ async def api_print(request: Request, tree: SelectedTree) -> Response:
     )
 
 
-def print_pedigree(request: PrintRequest) -> bytes:
+def print_pedigree(request: PrintRequest, tree: Tree) -> bytes:
     """Validate the chart and render it within the reserved PDF slot."""
     validate_print(request.chart, request.partner_roots)
+    chart, partners = request.chart, request.partner_roots
+    if tree.external:
+        chart, partners = external_print_chart(ExternalTree(tree.path), chart, partners)
+        validate_print(chart, partners)
     try:
         return render_pedigree_pdf(
-            request.chart,
+            chart,
             show_children=request.show_children,
             show_partners=request.show_partners,
-            partner_roots=request.partner_roots,
+            partner_roots=partners,
         )
     except PrintLayoutError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -743,9 +754,13 @@ def pedigree_record_page(
     request: Request, person_id: RecordID, tree: SelectedTree
 ) -> HTMLResponse:
     """Render a record and its linked images from the same read-only snapshot."""
-    with connect(tree.path) as db:
+    with connect(tree.database) as db:
         record = read_pedigree_details(db, PersonID(person_id))
-        images = record_images(db, tree.path, record) if record is not None else None
+        images = (
+            record_images(db, tree.path, record)
+            if record is not None and not tree.external
+            else None
+        )
     return HTMLResponse(
         templates.get_template("page.html").render(
             title=record.name if record else "Person not found",
@@ -834,7 +849,7 @@ def directory(
     request: Request, tree: SelectedTree, q: QueryText = "", offset: Offset = 0
 ) -> HTMLResponse:
     """Render the directory and preserve the search in pagination links."""
-    result = search(tree.path, q, PAGE_SIZE, offset)
+    result = search(tree.database, q, PAGE_SIZE, offset)
     previous = (
         urlencode({"q": q, "offset": max(0, offset - PAGE_SIZE), "tree": tree.slug})
         if offset
@@ -865,7 +880,7 @@ def person_page(
     request: Request, person_id: RecordID, tree: SelectedTree
 ) -> HTMLResponse:
     """Render a browsable person record or a clear not-found page."""
-    record = profile(tree.path, PersonID(person_id))
+    record = profile(tree.database, PersonID(person_id))
     if record is None:
         return HTMLResponse(
             templates.get_template("page.html").render(

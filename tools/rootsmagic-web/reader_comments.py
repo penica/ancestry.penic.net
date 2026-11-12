@@ -202,7 +202,7 @@ def editable_comment(
 
 def require_person(tree: Tree, person_id: PersonID) -> None:
     """Verify the person exists in the chosen read-only RootsMagic snapshot."""
-    with connect(tree.path) as db:
+    with connect(tree.database) as db:
         if (
             db.execute(
                 "SELECT 1 FROM PersonTable WHERE PersonID = ?", (person_id,)

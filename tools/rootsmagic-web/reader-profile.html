@@ -53,7 +53,7 @@
 <section class="profile-panel" aria-labelledby="profile-information">
   <h2 id="profile-information">Account information</h2>
   <ul class="profile-rows">
-    {% for key in ['name', 'username', 'email', 'password', 'person'] %}
+    {% for key in ['name', 'username', 'email', 'password', 'person'] if key != 'person' or person_available %}
     <li>
       <a class="profile-link" href="{{ person_url|default('/account/person', true) if key == 'person' else '/account/' ~ key }}" aria-label="{{ 'Change password' if key == 'password' else 'Choose your person' if key == 'person' else 'Edit ' ~ labels[key]|lower }}"{% if key != 'password' %} aria-describedby="profile-{{ key }}-value"{% endif %}>
         <span class="profile-label">{{ labels[key] }}</span>

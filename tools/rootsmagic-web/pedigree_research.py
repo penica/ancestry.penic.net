@@ -16,7 +16,7 @@ from store import NAME, Person, PersonID, Record, connect, display_date
 if TYPE_CHECKING:
     import sqlite3
     from collections.abc import Mapping
-    from pathlib import Path
+    from reader_external import DatabasePath
 
 MAX_PATHS: Final = 20
 MAX_DEPTH: Final = 64
@@ -195,7 +195,7 @@ def _routes(
 
 
 def relationship_paths(
-    path: Path, from_id: PersonID, to_id: PersonID
+    path: DatabasePath, from_id: PersonID, to_id: PersonID
 ) -> RelationshipPaths | None:
     """Find recorded ancestry routes first, otherwise shortest family routes."""
     with connect(path) as db:
@@ -287,7 +287,7 @@ def _person_gaps(db: sqlite3.Connection, person: Person) -> PersonGaps:
     )
 
 
-def research_gaps(path: Path, person_ids: tuple[PersonID, ...]) -> ResearchGaps:
+def research_gaps(path: DatabasePath, person_ids: tuple[PersonID, ...]) -> ResearchGaps:
     """Read gaps only for requested, existing people in a consistent snapshot."""
     with connect(path) as db:
         return ResearchGaps(

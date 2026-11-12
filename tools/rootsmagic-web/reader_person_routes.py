@@ -25,7 +25,7 @@ TreeSlug = Annotated[str, Query(max_length=MAX_TREE_SLUG_LENGTH)]
 
 def read_tree_person(tree: Tree, person_id: int) -> PedigreeSearchPerson | None:
     """Read the exact record from the selected tree without opening it for writing."""
-    with connect(tree.path) as db:
+    with connect(tree.database) as db:
         row = db.execute(EXACT_PERSON, (person_id,)).fetchone()
     return PedigreeSearchPerson.model_validate(dict(row)) if row else None
 
@@ -47,7 +47,7 @@ def search_people(
         person_id = parse_person_id(number)
         person = read_tree_person(tree, person_id) if person_id is not None else None
         return ((person,) if person else ()), False
-    results = pedigree_search(tree.path, query, SEARCH_LIMIT, 0)
+    results = pedigree_search(tree.database, query, SEARCH_LIMIT, 0)
     return results.people, results.total > len(results.people)
 
 
@@ -74,7 +74,7 @@ def person_router(access: ReaderAccess, templates: Environment) -> APIRouter:
     ) -> HTMLResponse:
         access.store()
         session = require_session(request)
-        trees = access.visible_trees(request)
+        trees = access.family_trees(request)
         selected = choose_tree(trees, tree)
         linked_id = session.account.person_for(selected.slug) if selected else None
         linked = (
@@ -113,7 +113,7 @@ def person_router(access: ReaderAccess, templates: Environment) -> APIRouter:
         session = require_session(request)
         form = await read_form(request)
         verify_csrf(session.csrf_token, form.get("csrf_token", ""))
-        selected = choose_tree(access.visible_trees(request), tree)
+        selected = choose_tree(access.family_trees(request), tree)
         if selected is None:
             raise HTTPException(status_code=404, detail="That tree is unavailable.")
         value = form.get("person_id")

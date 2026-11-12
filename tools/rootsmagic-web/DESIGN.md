@@ -67,6 +67,12 @@ Layout: selected-person details - preserve chart position beneath a native modal
 - Show **Publish** beside **Refresh** for the Mac working tree when publication is enabled. Display publication progress and its result independently of chart navigation and refresh. Submit from the local page with its request token and block repeated clicks while publication runs.
 - The pedigree endpoints use the live database described in the [reader guide](README.md). Responses use `Cache-Control: no-store`, and each request opens a read-only SQLite transaction. Run the compatibility checks in that guide after a RootsMagic upgrade.
 
+## External Reader
+
+- Resolve the account's role for the selected tree on every request. Use the read-only SQLite projection in `reader_external.py` for external search, directory, chart, relationships, and both record views. The projection filters living and private people, private names and links, non-vital or private facts, free-text dates, and exact sites. Derive search years from the permitted vital events. The SQLite authorizer also limits reads of the underlying tables.
+- Enforce family access at the evidence, direct media, comments, research, and follow-up endpoints. Hide those controls, Notes, and the tree's **My person** shortcut in the external view. If a preferred starting person is hidden, start with the first visible person.
+- Rebuild external PDF cards, facts, and family edges from the projection. The submitted outline selects branches to print. Scope shared links to the recipient's tree access and remove hidden branch IDs before rendering. Compare external change notices against the public record revision when available.
+
 ## Browser checks before shipping
 
 - Test a desktop and a phone width in light and dark mode. Verify the chart is the scrolling region, generation controls fit, and the fixed panel header leaves room to scroll the details.
@@ -82,3 +88,4 @@ Layout: selected-person details - preserve chart position beneath a native modal
 - Expand a starting person with a recorded marriage date and place. Verify those facts label the dashed partner connector on screen and in the PDF. Check that the label remains with the partner’s ancestry collapsed and is legible with **Show children** on.
 - Use a temporary copy of the database to check a saved change and a failed refresh. Verify the old data remains readable on failure, then confirm retry updates the chart and open panel while preserving the view. Run the API examples from the reader guide.
 - At depth 3, expand both of #37's parent branches, collapse one, and verify the other remains. Check a relationship between #37 and #240, the gap flags for #614, and source and media links in #406's timeline. Download the visible chart and verify the PDF is one page, 841 mm high, with embedded text and the correct people.
+- With a disposable tree and account, use **Manage accounts** to invite an External Reader. Verify name and ID search, chart and relationship links, Details, and the full record. Request a hidden person's URL and a known media ID directly. Open a family member's shared link and check the saved branch IDs. Export a PDF using a request with modified card text or hidden relatives and verify the PDF contains only permitted server records. Change the test account from Reader to External Reader in an open session and verify access in both a restricted tree and a tree where it still has Reader access. Repeat these checks after a RootsMagic schema upgrade.

@@ -60,7 +60,7 @@ class FollowUp(Record):
 
 def gap_label(tree: Tree, draft: FollowUpDraft) -> str:
     """Store the description from the current RootsMagic record."""
-    result = research_gaps(tree.path, (draft.person_id,))
+    result = research_gaps(tree.database, (draft.person_id,))
     if not result.people:
         raise HTTPException(status_code=404, detail="Person not found.")
     person = result.people[0]

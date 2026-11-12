@@ -27,7 +27,7 @@ from store import (
 
 if TYPE_CHECKING:
     import sqlite3
-    from pathlib import Path
+    from reader_external import DatabasePath
 
 FamilyID = NewType("FamilyID", int)
 SiblingRelationship = Literal["Sibling", "Half-sibling"]
@@ -299,7 +299,7 @@ def plain_note(note: str | None) -> str | None:
     return "".join(parser.parts).strip() if parser.parts else note
 
 
-def pedigree_details(path: Path, person_id: PersonID) -> Profile | None:
+def pedigree_details(path: DatabasePath, person_id: PersonID) -> Profile | None:
     """Read the complete person projection and the chart's sibling relationships."""
     with connect(path) as db:
         return read_pedigree_details(db, person_id)
@@ -337,133 +337,150 @@ def read_pedigree_details(
     )
 
 
-def pedigree(path: Path, person_id: PersonID, generations: int) -> Pedigree | None:
+def read_card(db: sqlite3.Connection, record_id: PersonID) -> PersonCard | None:
+    """Read the chart card from the current authorized view."""
+    row = db.execute(CARD_PERSON, (record_id,)).fetchone()
+    if row is None:
+        return None
+    person = Person.model_validate(dict(row))
+    events = facts(db, 0, record_id)
+    return PersonCard(
+        id=person.id,
+        name=person.name if person.name.strip(" ?_") else "Name unknown",
+        living=person.living,
+        birth=events.birth,
+        death=None if person.living else events.death,
+        age_at_death=read_age_at_death(
+            db,
+            record_id,
+            birth_year=row["birth_year"],
+            death_year=row["death_year"],
+            living=person.living,
+        ),
+    )
+
+
+def read_parent_family(
+    db: sqlite3.Connection, record_id: PersonID
+) -> ParentFamily | None:
+    """Read the preferred parental family, falling back to the first link."""
+    row = db.execute(PARENT_FAMILY, (record_id,)).fetchone()
+    return ParentFamily.model_validate(dict(row)) if row else None
+
+
+def pedigree(
+    path: DatabasePath, person_id: PersonID, generations: int
+) -> Pedigree | None:
     """Read the entire chart from one current, read-only database snapshot."""
     with connect(path) as db:
+        return read_pedigree(db, person_id, generations)
 
-        @cache
-        def card(record_id: PersonID) -> PersonCard | None:
-            """Read the person's display name and preferred vital events."""
-            row = db.execute(CARD_PERSON, (record_id,)).fetchone()
-            if row is None:
-                return None
-            person = Person.model_validate(dict(row))
-            events = facts(db, 0, record_id)
-            return PersonCard(
-                id=person.id,
-                name=person.name if person.name.strip(" ?_") else "Name unknown",
-                living=person.living,
-                birth=events.birth,
-                death=None if person.living else events.death,
-                age_at_death=read_age_at_death(
-                    db,
-                    record_id,
-                    birth_year=row["birth_year"],
-                    death_year=row["death_year"],
-                    living=person.living,
+
+def read_pedigree(
+    db: sqlite3.Connection, person_id: PersonID, generations: int
+) -> Pedigree | None:
+    """Project the chart inside the caller's current database snapshot."""
+
+    @cache
+    def card(record_id: PersonID) -> PersonCard | None:
+        return read_card(db, record_id)
+
+    @cache
+    def parent_family(record_id: PersonID) -> ParentFamily | None:
+        return read_parent_family(db, record_id)
+
+    def branch(
+        person: PersonCard,
+        remaining: int,
+        path_ids: frozenset[PersonID],
+    ) -> PedigreeNode:
+        """Build a branch, cutting only cycles on the current ancestry path."""
+        family = parent_family(person.id)
+        if family is None:
+            return PedigreeNode(person=person, parents=(), marriage=None)
+        lineage = path_ids | {person.id}
+        if remaining == 1:
+            return PedigreeNode(
+                person=person,
+                parents=(),
+                marriage=None,
+                has_more_parents=any(
+                    parent_id not in lineage and card(parent_id) is not None
+                    for parent_id in family.parents
                 ),
             )
+        parents = tuple(
+            branch(parent, remaining - 1, lineage)
+            for parent_id in family.parents
+            if parent_id not in lineage and (parent := card(parent_id)) is not None
+        )
+        marriage = facts(db, 1, family.id).marriage if len(parents) == 2 else None
+        return PedigreeNode(person=person, parents=parents, marriage=marriage)
 
-        @cache
-        def parent_family(record_id: PersonID) -> ParentFamily | None:
-            """Read the preferred parental family, falling back to the first link."""
-            row = db.execute(PARENT_FAMILY, (record_id,)).fetchone()
-            return ParentFamily.model_validate(dict(row)) if row else None
-
-        def branch(
-            person: PersonCard,
-            remaining: int,
-            path_ids: frozenset[PersonID],
-        ) -> PedigreeNode:
-            """Build a branch, cutting only cycles on the current ancestry path."""
-            family = parent_family(person.id)
-            if family is None:
-                return PedigreeNode(person=person, parents=(), marriage=None)
-            lineage = path_ids | {person.id}
-            if remaining == 1:
-                return PedigreeNode(
-                    person=person,
-                    parents=(),
-                    marriage=None,
-                    has_more_parents=any(
-                        parent_id not in lineage and card(parent_id) is not None
-                        for parent_id in family.parents
-                    ),
-                )
-            parents = tuple(
-                branch(parent, remaining - 1, lineage)
-                for parent_id in family.parents
-                if parent_id not in lineage and (parent := card(parent_id)) is not None
-            )
-            marriage = facts(db, 1, family.id).marriage if len(parents) == 2 else None
-            return PedigreeNode(person=person, parents=parents, marriage=marriage)
-
-        person = card(person_id)
-        if person is None:
-            return None
-        family = parent_family(person_id)
-        siblings = (
-            tuple(
-                Sibling(
-                    person=sibling,
-                    relationship=relationship,
-                    shares_parents=bool(
-                        other_family
-                        and (
-                            other_family.id == family.id
-                            or (
-                                len(family.parents) == 2
-                                and set(other_family.parents) == set(family.parents)
-                            )
+    person = card(person_id)
+    if person is None:
+        return None
+    family = parent_family(person_id)
+    siblings = (
+        tuple(
+            Sibling(
+                person=sibling,
+                relationship=relationship,
+                shares_parents=bool(
+                    other_family
+                    and (
+                        other_family.id == family.id
+                        or (
+                            len(family.parents) == 2
+                            and set(other_family.parents) == set(family.parents)
                         )
-                    ),
-                )
-                for sibling_id, relationship in sibling_relationships(
-                    db, person_id, family
-                )
-                if (sibling := card(sibling_id)) is not None
-                for other_family in (parent_family(sibling_id),)
-            )
-            if family is not None
-            else ()
-        )
-        child_families: list[ChildFamily] = []
-        rows = db.execute(CHILD_FAMILIES, {"person_id": person_id})
-        for family_id, linked_rows in groupby(rows, key=lambda row: row["family_id"]):
-            links = tuple(linked_rows)
-            children = tuple(
-                child
-                for row in links
-                if (child := card(PersonID(row["child_id"]))) is not None
-            )
-            if children:
-                partner_id = links[0]["partner_id"] or 0
-                child_families.append(
-                    ChildFamily(
-                        id=FamilyID(family_id),
-                        partner=card(PersonID(partner_id)) if partner_id > 0 else None,
-                        children=children,
                     )
-                )
-        children_by_id = {
-            child.id: child for group in child_families for child in group.children
-        }
-        partners_by_id: dict[PersonID, PersonCard] = {}
-        partner_marriages: dict[PersonID, tuple[Fact, ...]] = {}
-        for row in db.execute(PARTNER_FAMILIES, {"person_id": person_id}):
-            partner = card(PersonID(row["id"]))
-            if partner is None:
-                continue
-            partners_by_id[partner.id] = partner
-            marriage = facts(db, 1, FamilyID(row["family_id"])).marriage
-            marriages = partner_marriages.get(partner.id, ())
-            if marriage is not None and marriage not in marriages:
-                partner_marriages[partner.id] = (*marriages, marriage)
-        return Pedigree(
-            root=branch(person, generations, frozenset()),
-            siblings=siblings,
-            children=tuple(children_by_id[key] for key in sorted(children_by_id)),
-            partners=tuple(partners_by_id.values()),
-            partner_marriages=partner_marriages,
-            child_families=tuple(child_families),
+                ),
+            )
+            for sibling_id, relationship in sibling_relationships(db, person_id, family)
+            if (sibling := card(sibling_id)) is not None
+            for other_family in (parent_family(sibling_id),)
         )
+        if family is not None
+        else ()
+    )
+    child_families: list[ChildFamily] = []
+    rows = db.execute(CHILD_FAMILIES, {"person_id": person_id})
+    for family_id, linked_rows in groupby(rows, key=lambda row: row["family_id"]):
+        links = tuple(linked_rows)
+        children = tuple(
+            child
+            for row in links
+            if (child := card(PersonID(row["child_id"]))) is not None
+        )
+        if children:
+            partner_id = links[0]["partner_id"] or 0
+            child_families.append(
+                ChildFamily(
+                    id=FamilyID(family_id),
+                    partner=card(PersonID(partner_id)) if partner_id > 0 else None,
+                    children=children,
+                )
+            )
+    children_by_id = {
+        child.id: child for group in child_families for child in group.children
+    }
+    partners_by_id: dict[PersonID, PersonCard] = {}
+    partner_marriages: dict[PersonID, tuple[Fact, ...]] = {}
+    for row in db.execute(PARTNER_FAMILIES, {"person_id": person_id}):
+        partner = card(PersonID(row["id"]))
+        if partner is None:
+            continue
+        partners_by_id[partner.id] = partner
+        marriage = facts(db, 1, FamilyID(row["family_id"])).marriage
+        marriages = partner_marriages.get(partner.id, ())
+        if marriage is not None and marriage not in marriages:
+            partner_marriages[partner.id] = (*marriages, marriage)
+    return Pedigree(
+        root=branch(person, generations, frozenset()),
+        siblings=siblings,
+        children=tuple(children_by_id[key] for key in sorted(children_by_id)),
+        partners=tuple(partners_by_id.values()),
+        partner_marriages=partner_marriages,
+        child_families=tuple(child_families),
+    )

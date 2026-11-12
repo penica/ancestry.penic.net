@@ -67,6 +67,6 @@ Check off a step when its behavior has been verified. **P1** covers the current 
 
 ## P3 · Sharing outside the family
 
-- [ ] **Add an External Reader role when needed**
-  - [ ] Define which living records, private facts, notes, comments, and media external readers may see.
-  - [ ] Enforce that policy in chart, search, full records, direct media, and PDF endpoints. Verify access with an external test account.
+- [x] **Add an External Reader role when needed**
+  - [x] Define which living records, private facts, notes, comments, and media external readers may see.
+  - [x] Enforce that policy in chart, search, full records, direct media, and PDF endpoints. Verify access with an external test account.

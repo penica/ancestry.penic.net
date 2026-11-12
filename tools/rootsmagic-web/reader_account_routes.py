@@ -146,12 +146,14 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
         session = require_session(request)
         person_url = "/account/person"
         person_summary = ""
+        person_available = False
         if field is None:
-            trees = access.visible_trees(request)
+            trees = access.family_trees(request)
             selected = next((choice for choice in trees if choice.slug == tree), None)
             if selected is None and trees:
                 selected = trees[0]
             if selected is not None:
+                person_available = True
                 person_url = selected.url(person_url)
                 person_id = session.account.person_for(selected.slug)
                 if person_id is not None and (
@@ -169,6 +171,7 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
                 attempted_value=attempted_value,
                 person_url=person_url,
                 person_summary=person_summary,
+                person_available=person_available,
                 mfa_available=store.mfa_available,
             ),
             status_code=status,
@@ -371,7 +374,7 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
         try:
             role = Role(form.get("role", ""))
             slug = form.get("tree_slug", "")
-            tree = configured_tree(slug) if role is Role.READER else None
+            tree = None if role is Role.ADMINISTRATOR else configured_tree(slug)
             recipient = form.get("recipient", "").strip()
             if recipient:
                 recipient = mail_address(recipient)
@@ -381,7 +384,9 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
         except AccountsError as error:
             return await admin_page(request, error=str(error))
         except ValueError:
-            return await admin_page(request, error="Choose Reader or Administrator.")
+            return await admin_page(
+                request, error="Choose Reader, External Reader, or Administrator."
+            )
         url = f"{access.origin}/invite?{urlencode({'token': token})}"
         audit("invitation_created", "ok", actor=session.account.id)
         if recipient:
@@ -419,14 +424,14 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
                 await run_in_threadpool(
                     store.set_administrator, actor, account_id, role == "administrator"
                 )
-            elif role in {"reader", "remove"}:
+            elif role in {Role.READER, Role.EXTERNAL_READER, "remove"}:
                 slug = configured_tree(form.get("tree_slug", ""))
                 await run_in_threadpool(
                     store.set_membership,
                     actor,
                     account_id,
                     slug,
-                    Role.READER if role == "reader" else None,
+                    None if role == "remove" else Role(role),
                 )
             else:
                 raise AccountsError("Choose a role.")

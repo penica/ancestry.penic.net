@@ -29,7 +29,7 @@ The `rootsmagic-reader.service` systemd unit runs as `rootsmagic-reader` and lis
 
 ## VM accounts
 
-**Reader** accounts view their assigned trees, including associated records, images, and PDF exports. An **Administrator** can open every tree and use **Manage accounts** to invite users, change tree access, revoke an invitation, or disable an account. Each invitee sets their own password through a one-time link. Changes to account access take effect in open sessions.
+**Reader** accounts view their assigned trees, including associated records, images, and PDF exports. **External Reader** limits an assigned tree to publicly recorded vital facts and family links for deceased people. The same policy applies to search, records, shared charts, and PDFs. Notes, comments, citations, and media are reserved for family access. An **Administrator** can open every tree and use **Manage accounts** to invite users, change tree access, revoke an invitation, or disable an account. Each invitee sets their own password through a one-time link. Changes to account access take effect in open sessions. See [External Reader access](../README.md#external-reader-access) for the full policy.
 
 Open **Account → System settings** to reach **Manage accounts** or **Email server**. Choose **STARTTLS**, **TLS**, or **None** under **Encryption** to set the port to 587, 465, or 25 respectively. You can edit the port after choosing the mode. **None** sends mail over an unencrypted SMTP connection. Choose **Enabled** under **SMTP authentication** for a server that requires a username and password, or **Disabled** for a relay that accepts mail without a login. Use **Send test email** to try the settings in the form before saving. Re-enter a newly typed password when saving after a test. Saved passwords are encrypted with the server credential key and can be reused if you re-enable authentication for the same server and username. Invitation delivery uses the saved settings, and each new invitation has a copyable link.
 
@@ -45,7 +45,7 @@ The daily `rootsmagic-reader-state-backup.timer` runs SQLite’s online backup. 
 
 Set `ROOTSMAGIC_SETTINGS_FILE` to an absolute private JSON file to override the saved settings location. Keep `ROOTSMAGIC_BACKUP_STATUS_FILE` consistent between the reader and the backup service. The default status directory is owned by root and readable by the reader group.
 
-Before updating an existing VM, back up the account database and run `.venv/bin/python reader_accounts.py migrate /srv/rootsmagic-reader/state/accounts.sqlite3` as `rootsmagic-reader` from the tested release. The migration adds any missing account fields and tables.
+Before updating an existing VM, back up the account database and run `.venv/bin/python reader_accounts.py migrate /srv/rootsmagic-reader/state/accounts.sqlite3` as `rootsmagic-reader` from the tested release. The migration adds missing account fields and tables and enables the External Reader role in invitations and tree memberships. Existing accounts, access, sessions, and invitations are preserved. Restart the service with the updated release after migration.
 
 For a new VM, run this over SSH as `rootsmagic-reader` to create the first administrator's setup invitation. Copy the output privately into the `token` query parameter of `https://reader.example.org/invite`. The setup link expires after 30 minutes. Run the command again after expiry to issue a fresh link.
 

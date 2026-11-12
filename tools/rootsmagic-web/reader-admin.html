@@ -35,6 +35,7 @@
         <label for="new-role">Role</label>
         <select id="new-role" name="role">
           <option value="reader">Reader</option>
+          <option value="external_reader">External Reader</option>
           <option value="administrator">Administrator</option>
         </select>
       </div>
@@ -56,7 +57,7 @@
     </form>
     <details class="account-role-help">
       <summary>About roles</summary>
-      <p class="muted">Readers can view their assigned trees. Administrators can view every tree and manage accounts and invitations.</p>
+      <p class="muted">Readers can view their assigned trees. External Readers see the public vital facts and family links of deceased people in their assigned trees. Administrators can view every tree and manage accounts and invitations.</p>
       <p class="muted">Contributor and Editor roles are planned for submitting changes for review in RootsMagic on the Mac.</p>
     </details>
   </section>
@@ -78,7 +79,7 @@
               {% if account.memberships %}
               <dl class="account-memberships" aria-label="Tree access">
                 {% for member in account.memberships %}
-                <div><dt>{{ tree_name(member.tree_slug) }}</dt><dd>{{ member.role|capitalize }}</dd></div>
+                <div><dt>{{ tree_name(member.tree_slug) }}</dt><dd>{{ member.role.label }}</dd></div>
                 {% endfor %}
               </dl>
               {% elif not account.administrator %}
@@ -99,6 +100,7 @@
                   <select id="role-{{ account.id }}" name="role" required>
                     <option value="" selected disabled>Choose a role</option>
                     <option value="reader">Reader</option>
+                    <option value="external_reader">External Reader</option>
                     <option value="remove">Remove access</option>
                   </select>
                 </div>
@@ -135,7 +137,7 @@
         <li class="account-invite-row">
           <div>
             <strong>{{ invite.username }}</strong>
-            <p class="muted">{{ invite.role|capitalize }} · {{ tree_name(invite.tree_slug) if invite.tree_slug else 'All trees' }}</p>
+            <p class="muted">{{ invite.role.label }} · {{ tree_name(invite.tree_slug) if invite.tree_slug else 'All trees' }}</p>
             {% if invite.expires_display %}<p class="muted">Expires {{ invite.expires_display }}</p>{% endif %}
           </div>
           <form action="/admin/invite/{{ invite.id }}/revoke" method="post">

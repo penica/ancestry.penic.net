@@ -18,7 +18,7 @@
   {% if comments_token %}<script defer src="/pedigree-share.js"></script>{% endif %}
   {% if publish_token %}<script defer src="/pedigree-publish.js"></script>{% endif %}
 </head>
-<body data-tree="{{ tree.slug }}" data-starting-person="{{ starting_person }}"{% if shared_view %} data-shared-person="{{ shared_person }}" data-shared-view="{{ shared_view }}"{% endif %}>
+<body data-tree="{{ tree.slug }}" data-starting-person="{{ starting_person }}"{% if tree.external %} data-external-reader="true"{% endif %}{% if shared_view %} data-shared-person="{{ shared_person }}" data-shared-view="{{ shared_view }}"{% endif %}>
   {% with pedigree_header=true %}{% include "reader-masthead.html" %}{% endwith %}
   <main class="shell">
     <div class="page-header">
@@ -47,6 +47,7 @@
     {% if publish_token %}
     <p class="hint publish-status" id="pedigree-publish-status" role="status"></p>
     {% endif %}
+    {% if tree.external %}<p class="hint">External Reader view · Deceased people and public vital facts</p>{% endif %}
     {% if shared_changed %}<p class="hint" role="status">The starting person’s record has changed since this link was created. The chart shows the current record.</p>{% endif %}
     <section class="tree" aria-labelledby="pedigree-root">
       <div class="tree-header">
@@ -82,12 +83,12 @@
                 <h3 id="pedigree-research-tools">Research</h3>
                 <div class="chart-navigation">
                   <button class="reset" id="pedigree-relationship" type="button" aria-haspopup="dialog" disabled>Find relationship</button>
-                  <button class="reset" id="pedigree-worklist" type="button" aria-haspopup="dialog" aria-controls="research-worklist" disabled>Research worklist</button>
-                  {% if comments_token %}
+                  <button class="reset" id="pedigree-worklist" type="button" aria-haspopup="dialog" aria-controls="research-worklist"{% if tree.external %} hidden{% endif %} disabled>Research worklist</button>
+                  {% if comments_token and not tree.external %}
                   <a class="reset" href="{{ tree.url('/pedigree/follow-ups') }}">Saved follow-ups</a>
                   <a class="reset" href="{{ tree.url('/pedigree/comments') }}">Recent comments</a>
                   {% endif %}
-                  <label class="children-toggle"><input id="pedigree-show-gaps" type="checkbox" disabled> Show research gaps</label>
+                  <label class="children-toggle"{% if tree.external %} hidden{% endif %}><input id="pedigree-show-gaps" type="checkbox" disabled> Show research gaps</label>
                 </div>
                 <p id="pedigree-gap-status" class="hint" role="status"></p>
               </div>
@@ -136,13 +137,13 @@
         <a href="#details-identity">Identity</a>
         <a href="#details-timeline">Timeline</a>
         <a href="#details-family">Family</a>
-        <a href="#details-notes">Notes</a>
-        {% if comments_token %}<a href="#details-comments">Comments</a>{% endif %}
+        {% if not tree.external %}<a href="#details-notes">Notes</a>{% endif %}
+        {% if comments_token and not tree.external %}<a href="#details-comments">Comments</a>{% endif %}
       </nav>
     </div>
     <div class="details-scroll">
       <div id="person-details-body"></div>
-      {% if comments_token %}
+      {% if comments_token and not tree.external %}
       <section class="details-section person-comments" id="person-comments" aria-labelledby="details-comments" hidden>
         <h3 id="details-comments" tabindex="-1">Comments</h3>
         <form class="comment-form" id="person-comment-form" method="post">

@@ -4,9 +4,17 @@ Browse the family tree on this Mac and query it through a local JSON API.
 
 For the dedicated Linux reader, see the [VM deployment and update guide](deploy/README.md).
 
-The VM reader uses invitation-based accounts. **Reader** gives access to assigned trees. **Administrator** gives access to all trees and **Account → System settings → Manage accounts** for invitations and access changes.
+The VM reader uses invitation-based accounts. **Reader** gives family members access to assigned trees. **External Reader** gives access to a limited view of an assigned tree. **Administrator** gives access to all trees and **Account → System settings → Manage accounts** for invitations and access changes.
 
 Open **Account → Account settings** on the VM to edit your name, username, contact email, and password. Choose **My person** to find your record by name or RootsMagic ID in an assigned tree. Once saved, the **My person** button in the header and the **Account → My person** entry both open that record. The choice is saved per tree.
+
+### External Reader access
+
+In **Manage accounts**, choose **External Reader** for the selected tree when inviting someone or changing their access. A person can have different roles on different trees. Access changes apply on the next request, including in an existing session.
+
+External Readers can see people recorded as deceased whose records and displayed names are public in RootsMagic. Search, charts, records, shared links, and PDFs show the same limited data. This includes public birth, baptism, christening, death, burial, and marriage facts with structured dates and recorded general places. Family links connect visible people through public relationships. A marriage is visible when both partners and the family record are public.
+
+Records marked living or private, and records with unknown living status, stay hidden. Private facts and names, exact sites, free-text dates, notes, citations, comments, linked media, and research tools are reserved for family access. **My person** is available for trees where the account has family access. Earlier shared links still open when the recipient can see the starting person. External Readers receive change notices for links with a public revision to compare.
 
 Under **Account settings → Two-step verification**, enter your current password and scan the QR code with an authenticator app. Enter the six-digit code to finish setup, then save the one-time recovery codes. At sign-in, enter an authenticator code or one recovery code after your password.
 

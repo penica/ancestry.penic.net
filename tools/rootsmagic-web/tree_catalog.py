@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Final
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from reader_external import DatabasePath, ExternalTree
 from reader_settings import SiteSettings, site_settings
 from store import NAME, PersonID, connect
 
@@ -35,6 +36,11 @@ class Tree:
     name: str
     path: Path
     preferred_person: PersonID | None = None
+    external: bool = False
+
+    @property
+    def database(self) -> DatabasePath:
+        return ExternalTree(self.path) if self.external else self.path
 
     def url(self, path: str) -> str:
         """Keep an internal page or resource URL in this tree."""
@@ -45,7 +51,7 @@ class Tree:
 
     def starting_person(self) -> PersonID | None:
         """Find the configured starting person or the first recorded name."""
-        with connect(self.path) as db:
+        with connect(self.database) as db:
             row = db.execute(
                 f"SELECT id FROM ({NAME}) ORDER BY id = ? DESC, id LIMIT 1",  # noqa: S608
                 (self.preferred_person,),

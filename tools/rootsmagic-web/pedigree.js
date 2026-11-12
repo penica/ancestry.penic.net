@@ -1,6 +1,7 @@
 "use strict";
 
 const TREE = document.body.dataset.tree;
+const EXTERNAL_READER = document.body.dataset.externalReader === "true";
 const DEFAULT_PERSON = Number(document.body.dataset.startingPerson || 0);
 const SHARED_PERSON = Number(document.body.dataset.sharedPerson || 0);
 const SHARED_PATH = SHARED_PERSON ? location.pathname : "";
@@ -206,7 +207,7 @@ function stageNode(stage, person, role, branch, generation, key) {
   card.dataset.generation = String(generation);
   const actions = element("div", "card-actions");
   actions.append(cardDetailAction(person, key, "details", "Details"));
-  if (commentsToken) actions.append(cardDetailAction(person, key, "comments", "Comments"));
+  if (commentsSection) actions.append(cardDetailAction(person, key, "comments", "Comments"));
   stage.append(card, actions);
   return { card, actions, person, branch, parents: [], y: 0 };
 }
@@ -790,7 +791,7 @@ async function loadTree(id, moveFocus = false, view = null, refresh = false) {
       initialDepth.value = view.depth;
       childrenToggle.checked = view.children;
       siblingsToggle.checked = view.siblings ?? true;
-      gapToggle.checked = view.gaps;
+      gapToggle.checked = !EXTERNAL_READER && view.gaps;
       chartScale = view.scale;
       for (const [key, paths] of view.branches) {
         branchExpansions.set(key, new Map(paths.map((path) => [path, null])));
@@ -994,9 +995,12 @@ function displayDetails(person) {
     events.append(element("p", "details-empty", "No events recorded."));
   }
   const family = displayFamily(person);
-  const notes = detailSection("Personal notes", "details-notes");
-  notes.append(element("p", person.note ? "record-note" : "details-empty", person.note || "No personal notes recorded."));
-  detailsBody.replaceChildren(identity, events, family, notes);
+  detailsBody.replaceChildren(identity, events, family);
+  if (!EXTERNAL_READER) {
+    const notes = detailSection("Personal notes", "details-notes");
+    notes.append(element("p", person.note ? "record-note" : "details-empty", person.note || "No personal notes recorded."));
+    detailsBody.append(notes);
+  }
 }
 
 function commentItem(comment, view) {
@@ -1242,7 +1246,7 @@ async function openDetails(person = selectedPerson, opener = detailsButton, refr
     if (commentAnchor !== null) {
       detailsScroll.scrollTop += commentsHeading.getBoundingClientRect().top - commentAnchor;
     }
-    void loadPersonEvidence(person.id, request.signal);
+    if (!EXTERNAL_READER) void loadPersonEvidence(person.id, request.signal);
     for (const disclosure of detailsBody.querySelectorAll("details[data-event-id]")) {
       disclosure.open = expanded.has(disclosure.dataset.eventId);
     }
