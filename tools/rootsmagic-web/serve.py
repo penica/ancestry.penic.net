@@ -259,6 +259,8 @@ async def local_headers(
         "/account/passkeys/remove",
     }:
         policy += "; script-src 'self'; connect-src 'self'"
+    elif request.url.path in {"/system/email", "/system/email/test"}:
+        policy += "; script-src 'self'"
     elif request.url.path.startswith("/pedigree/people/") and request.url.path.endswith(
         "/record"
     ):

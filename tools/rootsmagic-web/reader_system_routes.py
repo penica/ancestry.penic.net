@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from reader_access import ReaderAccess, admin_form, require_admin
@@ -85,6 +86,14 @@ def system_router(access: ReaderAccess, templates: Environment) -> APIRouter:
     async def email_settings(request: Request, saved: bool = False) -> HTMLResponse:
         return await email_page(
             request, notice="Email server settings saved." if saved else ""
+        )
+
+    @router.get("/system/email/port.js")
+    def email_port_script(request: Request) -> FileResponse:
+        require_admin(request)
+        return FileResponse(
+            Path(__file__).with_name("reader-email-settings.js"),
+            media_type="text/javascript",
         )
 
     @router.post("/system/email")

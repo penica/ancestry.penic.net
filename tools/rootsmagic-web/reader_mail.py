@@ -38,7 +38,7 @@ class SMTPSettings(Record):
 
     host: str
     port: Annotated[int, Field(ge=1, le=65535)]
-    security: Literal["starttls", "tls"]
+    security: Literal["starttls", "tls", "none"]
     username: str = ""
     saved_username: str = ""
     sender: str
@@ -210,7 +210,7 @@ class Mail:
         draft: SMTPSettings | None = None,
         password: str = "",
     ) -> None:
-        """Send one email over verified TLS using saved settings or a test draft."""
+        """Send one email using saved settings or a test draft."""
         recipient = mail_address(recipient)
         with self.accounts._connect() as db:
             _require_admin(db, actor)
@@ -234,17 +234,19 @@ class Mail:
         if not SMTP_WORK.acquire(blocking=False):
             raise MailError("The email server is busy. Try again shortly.")
         try:
-            context = ssl.create_default_context()
             smtp = (
                 smtplib.SMTP_SSL(
-                    settings.host, settings.port, timeout=8, context=context
+                    settings.host,
+                    settings.port,
+                    timeout=8,
+                    context=ssl.create_default_context(),
                 )
                 if settings.security == "tls"
                 else smtplib.SMTP(settings.host, settings.port, timeout=8)
             )
             with smtp:
                 if settings.security == "starttls":
-                    smtp.starttls(context=context)
+                    smtp.starttls(context=ssl.create_default_context())
                 if plain is not None:
                     smtp.login(settings.username, plain)
                 smtp.send_message(message)

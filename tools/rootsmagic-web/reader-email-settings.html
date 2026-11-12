@@ -1,5 +1,6 @@
 {% extends "reader-system.html" %}
 {% block title %}Email server · System settings{% endblock %}
+{% block extra_styles %}<script defer src="/system/email/port.js"></script>{% endblock %}
 {% block system_content %}
 {% set fields = draft if draft is not none else settings %}
 {% set authenticate = (draft.authentication != 'disabled') if draft is not none else (settings.uses_authentication if settings else true) %}
@@ -20,8 +21,9 @@
     <div class="account-field">
       <label for="smtp-security">Encryption</label>
       <select id="smtp-security" name="security">
-        <option value="starttls"{% if not fields or fields.security == 'starttls' %} selected{% endif %}>STARTTLS</option>
-        <option value="tls"{% if fields and fields.security == 'tls' %} selected{% endif %}>TLS</option>
+        <option value="starttls" data-port="587"{% if not fields or fields.security == 'starttls' %} selected{% endif %}>STARTTLS</option>
+        <option value="tls" data-port="465"{% if fields and fields.security == 'tls' %} selected{% endif %}>TLS</option>
+        <option value="none" data-port="25"{% if fields and fields.security == 'none' %} selected{% endif %}>None</option>
       </select>
     </div>
     <div class="account-field">
