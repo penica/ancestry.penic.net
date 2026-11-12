@@ -31,6 +31,10 @@ h1 { font-size: var(--display); margin: var(--s2) 0 var(--s6); }
 h2 { font-size: var(--section); margin: 0 0 var(--s3); }
 h3, p { margin: 0; }
 .label { font-size: var(--small); color: var(--muted); }
+.reader-record-list { list-style: none; padding: 0; }
+.reader-record-list li { padding-block: var(--s3); border-block-start: 1px solid var(--rule); overflow-wrap: anywhere; }
+.reader-record-list li > a { display: inline-flex; align-items: center; min-block-size: var(--target); }
+.reader-record-list form { margin-block-start: var(--s2); }
 section { margin-block-start: var(--s8); }
 label { display: block; margin-block-end: var(--s2); }
 .search { display: flex; gap: var(--s2); }

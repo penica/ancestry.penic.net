@@ -5,6 +5,7 @@ const worklistDialog = document.querySelector("#research-worklist");
 const worklistCategory = document.querySelector("#worklist-category");
 const worklistGeneration = document.querySelector("#worklist-generation");
 const worklistStatus = document.querySelector("#worklist-status");
+const worklistSaveStatus = document.querySelector("#worklist-save-status");
 const worklistResults = document.querySelector("#worklist-results");
 const worklistRetry = document.querySelector("#worklist-retry");
 const worklistMore = document.querySelector("#worklist-more");
@@ -13,6 +14,7 @@ const WORKLIST_PAGE_SIZE = 50;
 let worklistRequest;
 let worklistCards = [];
 let worklistPeople = new Map();
+const worklistFollowUps = new Map();
 let worklistLimit = WORKLIST_PAGE_SIZE;
 let worklistReturnFocus;
 
@@ -33,6 +35,55 @@ function worklistMissing(gaps) {
     default:
       return gaps.missing;
   }
+}
+
+function followUpControl(person, gap, label) {
+  const item = element("li", "follow-up-gap");
+  item.append(element("span", "", label));
+  if (!commentsToken) return item;
+  const key = `${person.id}:${gap}`;
+  const statuses = worklistFollowUps.get(person.id) || new Map();
+  worklistFollowUps.set(person.id, statuses);
+  const button = element("button", "reset", "Save follow-up");
+  button.type = "button";
+  button.dataset.followUp = key;
+  function displayStatus() {
+    const status = statuses.get(gap);
+    button.textContent = status || "Save follow-up";
+    button.disabled = Boolean(status);
+    button.setAttribute("aria-label", `${button.textContent} for ${person.name}, ${label}`);
+  }
+  displayStatus();
+  button.addEventListener("click", async () => {
+    if (statuses.has(gap)) return;
+    statuses.set(gap, "Saving…");
+    displayStatus();
+    worklistSaveStatus.textContent = "Saving follow-up…";
+    try {
+      const saved = await requestJSON(`${API}/follow-ups`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": commentsToken },
+        body: JSON.stringify({ person_id: person.id, gap }),
+      });
+      const status = saved.completed_at ? "Completed" : "Saved";
+      statuses.set(gap, status);
+      for (const duplicate of worklistResults.querySelectorAll("[data-follow-up]")) {
+        if (duplicate.dataset.followUp !== key) continue;
+        duplicate.textContent = status;
+        duplicate.disabled = true;
+        duplicate.setAttribute("aria-label", `${status} for ${person.name}, ${label}`);
+      }
+      worklistSaveStatus.textContent = "Follow-up saved.";
+    } catch (error) {
+      statuses.delete(gap);
+      worklistSaveStatus.textContent = error instanceof PedigreeRequestError
+        ? error.message : "The follow-up could not be saved. Try again.";
+    } finally {
+      displayStatus();
+    }
+  });
+  item.append(button);
+  return item;
 }
 
 function renderResearchWorklist() {
@@ -58,12 +109,16 @@ function renderResearchWorklist() {
       worklistDialog.close();
     });
     row.append(jump);
-    if (missing.length) row.append(element("p", "hint", missing.map((key) => missingLabels[key]).join(" · ")));
+    if (missing.length) {
+      const gapsList = element("ul", "follow-up-gaps");
+      for (const key of missing) gapsList.append(followUpControl(gaps.person, key, missingLabels[key]));
+      row.append(gapsList);
+    }
     if (citations.length) {
       const disclosure = element("details", "details-event");
       disclosure.append(element("summary", "", `${citations.length} ${citations.length === 1 ? "event" : "events"} without citations`));
-      const events = element("ul");
-      for (const event of citations) events.append(element("li", "", [event.kind, event.date].filter(Boolean).join(" · ")));
+      const events = element("ul", "follow-up-gaps");
+      for (const event of citations) events.append(followUpControl(gaps.person, `event:${event.id}`, [event.kind, event.date].filter(Boolean).join(" · ")));
       disclosure.append(events);
       row.append(disclosure);
     }
@@ -103,15 +158,27 @@ async function loadResearchWorklist() {
   worklistResults.replaceChildren();
   worklistResults.setAttribute("aria-busy", "true");
   worklistStatus.textContent = "Checking the displayed people for research gaps…";
+  worklistSaveStatus.textContent = "";
   worklistLimit = WORKLIST_PAGE_SIZE;
   worklistPeople = new Map();
   const ids = [...new Set(worklistCards.map(({ id }) => id))];
   const people = new Map();
   try {
     for (let index = 0; index < ids.length; index += 100) {
-      const result = await getJSON(`${API}/research-gaps`, request.signal, { person_ids: ids.slice(index, index + 100) });
+      const chunk = ids.slice(index, index + 100);
+      const result = await getJSON(`${API}/research-gaps`, request.signal, { person_ids: chunk, include_follow_ups: Boolean(commentsToken) });
       if (request.signal.aborted) return;
       for (const gaps of result.people) people.set(gaps.person.id, gaps);
+      for (const id of chunk) {
+        const statuses = worklistFollowUps.get(id) || new Map();
+        for (const [gap, value] of statuses) {
+          if (value !== "Saving…") statuses.delete(gap);
+        }
+        for (const [gap, complete] of Object.entries(result.saved_follow_ups?.[id] || {})) {
+          statuses.set(gap, complete ? "Completed" : "Saved");
+        }
+        worklistFollowUps.set(id, statuses);
+      }
     }
     worklistPeople = people;
     worklistCategory.disabled = false;

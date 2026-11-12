@@ -2,6 +2,8 @@
 
 const TREE = document.body.dataset.tree;
 const DEFAULT_PERSON = Number(document.body.dataset.startingPerson || 0);
+const SHARED_PERSON = Number(document.body.dataset.sharedPerson || 0);
+const SHARED_PATH = SHARED_PERSON ? location.pathname : "";
 const API = "/api/v1/pedigree";
 const SVG = "http://www.w3.org/2000/svg";
 const GENERATIONS = ["Starting person", "Parents", "Grandparents"];
@@ -11,8 +13,7 @@ const summary = document.querySelector("#pedigree-summary");
 const childrenLinks = document.querySelector("#pedigree-children");
 const previousLink = document.querySelector("#pedigree-previous");
 const treeStatus = document.querySelector("#pedigree-status");
-const publishButton = document.querySelector("#pedigree-publish");
-const publishStatus = document.querySelector("#pedigree-publish-status");
+const shareButton = document.querySelector("#pedigree-share");
 const searchForm = document.querySelector("#pedigree-search");
 const query = document.querySelector("#pedigree-query");
 const searchPanel = document.querySelector("#search-panel");
@@ -82,6 +83,7 @@ function personURL(id) {
 }
 
 function currentPerson() {
+  if (location.pathname === SHARED_PATH) return SHARED_PERSON;
   const id = Number(new URLSearchParams(window.location.search).get("person"));
   return Number.isSafeInteger(id) && id > 0 ? id : DEFAULT_PERSON;
 }
@@ -91,11 +93,8 @@ function previousPerson() {
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
-function saveChartView() {
-  if (chartData?.root.person.id !== currentPerson() || viewport.getAttribute("aria-busy") === "true") return;
-  history.replaceState({ ...history.state, chartView: {
-    tree: TREE,
-    person: currentPerson(),
+function captureChartView() {
+  return {
     depth: initialDepth.value,
     children: childrenToggle.checked,
     siblings: siblingsToggle.checked,
@@ -105,12 +104,20 @@ function saveChartView() {
     scrollTop: viewport.scrollTop,
     branches: [...branchExpansions].map(([key, branches]) => [key, [...branches.keys()]]),
     collapsedPartners: [...collapsedPartners],
-  } }, "", personURL(currentPerson()));
+  };
+}
+
+function saveChartView() {
+  if (chartData?.root.person.id !== currentPerson() || viewport.getAttribute("aria-busy") === "true") return;
+  const person = currentPerson();
+  const chartView = { tree: TREE, person, ...captureChartView() };
+  history.replaceState({ ...history.state, chartView }, "", location.pathname === SHARED_PATH ? location.href : personURL(person));
 }
 
 function historyView() {
   const view = history.state?.chartView;
-  return view?.tree === TREE && view?.person === currentPerson() ? view : null;
+  if (view?.tree === TREE && view?.person === currentPerson()) return view;
+  return location.pathname === SHARED_PATH ? JSON.parse(document.body.dataset.sharedView) : null;
 }
 
 function updatePreviousLink() {
@@ -736,7 +743,7 @@ async function requestJSON(url, request) {
     const message = typeof result?.detail === "string" ? result.detail : "The RootsMagic reader could not load this request.";
     throw new PedigreeRequestError(message, response.status);
   }
-  return response.json();
+  return response.status === 204 ? undefined : response.json();
 }
 
 function getJSON(url, signal, data) {
@@ -794,6 +801,7 @@ async function loadTree(id, moveFocus = false, view = null, refresh = false) {
     resizeChart = null;
     selectedPerson = null;
     detailsButton.disabled = true;
+    if (shareButton) shareButton.disabled = true;
     for (const control of [zoomOut, zoomIn, fitView, childrenToggle, siblingsToggle,
       document.querySelector("#pedigree-generation"), document.querySelector("#pedigree-center")]) {
       control.disabled = true;
@@ -828,6 +836,7 @@ async function loadTree(id, moveFocus = false, view = null, refresh = false) {
     displayGraph(data, moveFocus);
     selectedPerson = data.root.person;
     detailsButton.disabled = false;
+    if (shareButton) shareButton.disabled = false;
     if (view && Number.isFinite(view.scrollTop)) {
       viewport.scrollTo(view.scrollLeft, view.scrollTop);
     }
@@ -990,15 +999,109 @@ function displayDetails(person) {
   detailsBody.replaceChildren(identity, events, family, notes);
 }
 
-function commentItem(comment) {
+function commentItem(comment, view) {
   const item = element("li");
   const byline = element("div", "comment-byline");
   const date = new Date(comment.created_at);
   const time = element("time", "", commentDate.format(date));
   time.dateTime = comment.created_at;
   byline.append(element("strong", "", comment.author), time);
+  if (comment.edited_at) byline.append(element("span", "hint", "Edited"));
   item.append(byline, element("p", "comment-text", comment.body));
+  const actions = element("div", "chart-navigation");
+  if (comment.can_edit) {
+    const edit = element("button", "reset", "Edit comment");
+    edit.type = "button";
+    edit.addEventListener("click", () => editComment(item, comment, view));
+    actions.append(edit);
+  }
+  if (comment.can_remove) {
+    const remove = element("button", "reset", "Remove comment");
+    remove.type = "button";
+    remove.addEventListener("click", async () => {
+      if (view.posting || !window.confirm("Remove this comment?")) return;
+      await changeComment(view, "DELETE", comment.id, undefined, () => {
+        item.remove();
+        if (!commentsList.childElementCount && view.before === null) commentsStatus.textContent = "No comments yet.";
+        commentsHeading.focus();
+      }, "Comment removed.");
+    });
+    actions.append(remove);
+  }
+  if (actions.childElementCount) item.append(actions);
   return item;
+}
+
+function editComment(item, comment, view) {
+  if (view.posting || view.loading) return;
+  const editor = element("form", "comment-form");
+  const label = element("label", "", "Edit comment");
+  const input = element("textarea");
+  input.value = comment.body;
+  input.maxLength = commentInput.maxLength;
+  input.rows = 3;
+  input.required = true;
+  label.append(input);
+  const actions = element("div", "chart-navigation");
+  const save = element("button", "reset comment-submit", "Save comment");
+  save.type = "submit";
+  const cancel = element("button", "reset", "Cancel");
+  cancel.type = "button";
+  const replace = (updated) => {
+    const row = commentItem(updated, view);
+    item.replaceWith(row);
+    row.querySelector("button")?.focus();
+  };
+  cancel.addEventListener("click", () => replace(comment));
+  editor.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const body = input.value.trim();
+    if (!body) {
+      commentStatus.textContent = "Enter a comment.";
+      input.focus();
+      return;
+    }
+    save.disabled = true;
+    cancel.disabled = true;
+    await changeComment(view, "PATCH", comment.id, body, replace, "Comment updated.");
+    save.disabled = false;
+    cancel.disabled = false;
+  });
+  actions.append(save, cancel);
+  editor.append(label, actions);
+  item.replaceChildren(editor);
+  input.focus();
+}
+
+function commentRequest(view, method, commentId, body) {
+  const path = `${API}/${view.personId}/comments${commentId === null ? "" : `/${commentId}`}`;
+  return requestJSON(path, {
+    method,
+    signal: view.request.signal,
+    headers: { Accept: "application/json", "Content-Type": "application/json", "X-CSRF-Token": commentsToken },
+    body: body === undefined ? undefined : JSON.stringify({ body }),
+  });
+}
+
+async function changeComment(view, method, id, body, update, notice) {
+  if (view !== commentsView || view.loading || view.posting) return;
+  view.posting = true;
+  setCommentControls(view);
+  commentStatus.textContent = "Updating comment…";
+  try {
+    const result = await commentRequest(view, method, id, body);
+    if (view !== commentsView) return;
+    update(result);
+    commentStatus.textContent = notice;
+  } catch (error) {
+    if (view === commentsView) commentStatus.textContent = error instanceof PedigreeRequestError
+      ? error.message : "The comment could not be updated. Try again.";
+  } finally {
+    if (view === commentsView) {
+      view.posting = false;
+      setCommentControls(view);
+    }
+  }
 }
 
 function setCommentControls(view) {
@@ -1016,7 +1119,7 @@ async function loadComments(view, before = null) {
     const path = `${API}/${view.personId}/comments${before === null ? "" : `?before=${before}`}`;
     const { comments, next_before: nextBefore } = await getJSON(path, view.request.signal);
     if (view !== commentsView) return;
-    const items = comments.map(commentItem);
+    const items = comments.map((comment) => commentItem(comment, view));
     if (before === null) commentsList.replaceChildren(...items);
     else commentsList.append(...items);
     view.loaded = true;
@@ -1072,19 +1175,10 @@ commentForm?.addEventListener("submit", async (event) => {
   setCommentControls(view);
   commentStatus.textContent = "Adding comment…";
   try {
-    const comment = await requestJSON(`${API}/${view.personId}/comments`, {
-      method: "POST",
-      signal: view.request.signal,
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        "X-CSRF-Token": commentsToken,
-      },
-      body: JSON.stringify({ body }),
-    });
+    const comment = await commentRequest(view, "POST", null, body);
     if (view !== commentsView) return;
     if (view.loaded && !commentsList.childElementCount) commentsStatus.textContent = "";
-    commentsList.prepend(commentItem(comment));
+    commentsList.prepend(commentItem(comment, view));
     if (commentInput.value.trim() === body) commentForm.reset();
     commentStatus.textContent = "Comment added.";
   } catch (error) {
@@ -1172,30 +1266,6 @@ function refreshTree() {
   return loadTree(currentPerson(), false, position, true);
 }
 
-async function publishTree() {
-  if (publishButton.getAttribute("aria-disabled") === "true") return;
-  publishButton.setAttribute("aria-disabled", "true");
-  publishStatus.textContent = "Publishing linked media and the tree…";
-  try {
-    const result = await requestJSON(`${API}/publish`, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "X-RootsMagic-Publish-Token": publishButton.dataset.publishToken,
-      },
-    });
-    const outcome = result.status === "already_published"
-      ? "The server already has this tree snapshot."
-      : "Tree published. Refresh the VM reader to see the update.";
-    publishStatus.textContent = `${outcome} Copied ${result.copied}, updated ${result.replaced}, and reused ${result.reused} media files.`;
-  } catch (error) {
-    const message = error instanceof PedigreeRequestError ? error.message : "Publishing could not be completed.";
-    publishStatus.textContent = `${message} Select Publish to try again.`;
-  } finally {
-    publishButton.removeAttribute("aria-disabled");
-  }
-}
-
 async function refreshDetails() {
   const attempt = {};
   detailsRefresh = attempt;
@@ -1213,7 +1283,6 @@ async function refreshDetails() {
 }
 
 document.querySelector("#pedigree-refresh").addEventListener("click", () => void refreshTree());
-publishButton?.addEventListener("click", () => void publishTree());
 detailsRefreshButton.addEventListener("click", () => void refreshDetails());
 detailsRetry.addEventListener("click", () => {
   detailsRefreshButton.focus({ preventScroll: true });

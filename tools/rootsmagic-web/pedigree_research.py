@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from itertools import pairwise
 from typing import TYPE_CHECKING, Final, Literal
 
+from pydantic import Field
+
 from pedigree_store import CARD_PERSON, FACTS, PARENT_FAMILY, Fact, ParentFamily, facts
 from store import NAME, Person, PersonID, Record, connect, display_date
 
@@ -89,6 +91,7 @@ class ResearchGaps(Record):
     """Research prompts for existing requested people, in request order."""
 
     people: tuple[PersonGaps, ...]
+    saved_follow_ups: dict[PersonID, dict[str, bool]] = Field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

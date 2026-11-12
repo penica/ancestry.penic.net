@@ -13,7 +13,7 @@ The reader is a private browser and API for published copies of the RootsMagic t
 | `/srv/rootsmagic-reader/incoming/` | Private staging for a publication in progress |
 | `/srv/rootsmagic-reader/backups/` | Prior snapshots for rollback |
 | `/srv/rootsmagic-reader/state/accounts.sqlite3` | VM accounts, tree access, invitations, and sessions |
-| `/srv/rootsmagic-reader/state/comments.sqlite3` | Reader comments tied to a tree and RootsMagic ID |
+| `/srv/rootsmagic-reader/state/comments.sqlite3` | Reader comments, research follow-ups, and shared chart views |
 | `/srv/rootsmagic-reader/state/settings.json` | Saved tree, chart, security, and backup settings |
 | `/srv/rootsmagic-reader/state-backups/` | Private daily account, comment, and encryption-key backups |
 | `/srv/rootsmagic-reader/backup-status/latest.json` | The last verified backup’s timestamp and included file types |
@@ -98,7 +98,7 @@ Open the preview while both commands are running. [SSH preview](http://127.0.0.1
 
 ## Publish a tree update
 
-Save in RootsMagic first. Open the working tree in the Mac reader and click **Publish** beside **Refresh**. Start the Mac reader with `ROOTSMAGIC_ENABLE_PUBLISH=1` to show the button. Once publication succeeds, click **Refresh** in the VM reader.
+Save in RootsMagic first. Open the working tree in the Mac reader and click **Publish** beside **Refresh**. Start the Mac reader with `ROOTSMAGIC_ENABLE_PUBLISH=1` to show the button. The preview lists changes to the compared record tables and shows new, updated, reusable, and unavailable media. Click **Publish to VM** after reviewing the preview. Open a fresh preview if the saved tree or its linked media changes. After publication, check the accepted filename, media counts, and previous snapshot filename. Click **Refresh** in the VM reader.
 
 To run the same publication from the Mac terminal, use Python 3.12 or newer and a verified SSH connection. Set `ROOTSMAGIC_PUBLISH_SERVER` in the Mac reader’s launch environment to use the browser button.
 
@@ -107,6 +107,8 @@ python3 tools/rootsmagic-web/deploy/publish-tree.py --with-media \
   --server rootsmagic-reader@lan-reader.example.org \
   "$HOME/Projects/FamilyTrees/family-tree.rmtree"
 ```
+
+Add `--preview` to compare the saved tree and linked media. Pass the returned `plan` value as `--expect-plan <value>` to publish that reviewed snapshot.
 
 The publisher takes one SQLite snapshot, verifies or copies the media it references, then sends that same snapshot over SSH. It reuses books already in the NAS archive and copies Mac files into the dedicated NAS media directory. The VM checks the snapshot checksum and SQLite contents, saves the previous snapshot in `backups/`, and atomically replaces the file in `trees/`. The default destination name follows the source filename with Unicode normalized for Linux. Use `--name 'family-tree.rmtree'` when publishing a differently named copy as the working tree. Publish additional trees under their own names.
 

@@ -18,6 +18,7 @@ import signal
 import sqlite3
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from secrets import compare_digest, token_urlsafe
 from threading import Lock
@@ -63,20 +64,29 @@ from pedigree_store import (
 )
 from reader_access import ReaderAccess, current_session, read_json
 from reader_account_routes import account_router
+from reader_chart_links import (
+    TOKEN_PATTERN,
+    ChartLink,
+    ChartLinkDraft,
+    ChartLinkURL,
+    ChartLinks,
+    record_revision,
+)
 from reader_comments import (
     Comment,
     CommentID,
     CommentPage,
     Comments,
-    CommentStorageError,
-    comment_author,
-    comments_path,
     comments_token,
+    mutation_actor,
     read_comment,
-    require_comments,
+    reader_actor,
 )
+from reader_follow_ups import FollowUp, FollowUpDraft, FollowUps
 from reader_print_limits import PDF_BODY_LIMIT, print_slot, validate_print
+from reader_research_routes import follow_up_router
 from reader_settings import SettingsError, site_settings
+from reader_tree_state import CommentStorageError, TreeState, comments_path
 from store import (
     Directory,
     PedigreeDirectory,
@@ -85,12 +95,15 @@ from store import (
     Record,
     connect,
     pedigree_search,
+    person_names,
     profile,
     search,
 )
 from tree_catalog import LIVE, Tree, same_file
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from starlette.middleware.base import RequestResponseEndpoint
 
 HERE: Final = Path(__file__).resolve().parent
@@ -106,6 +119,7 @@ Limit = Annotated[int, Query(ge=1, le=100)]
 RecordID = Annotated[int, PathParam(ge=1, le=2**63 - 1)]
 Generations = Annotated[int, Query(ge=1, le=PEDIGREE_GENERATIONS)]
 PositiveID = Annotated[int, Field(ge=1, le=2**63 - 1)]
+BeforeComment = Annotated[int | None, Query(ge=1, le=2**63 - 1)]
 
 
 def selected_tree(
@@ -136,6 +150,7 @@ class TreeChoice(Record):
 
 class GapRequest(BaseModel):
     person_ids: list[PositiveID] = Field(min_length=1, max_length=100)
+    include_follow_ups: bool = False
 
 
 class PrintRequest(BaseModel):
@@ -149,9 +164,32 @@ class PublishResult(Record):
     """Media counts and snapshot outcome returned by the publisher."""
 
     status: Literal["published", "already_published"]
+    snapshot: str
+    backup: str | None
     copied: Annotated[int, Field(ge=0)]
     replaced: Annotated[int, Field(ge=0)]
     reused: Annotated[int, Field(ge=0)]
+
+
+class RecordChanges(Record):
+    record: str
+    added: int
+    updated: int
+    removed: int
+
+
+class PublishPlan(Record):
+    plan: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
+class PublishPreview(PublishPlan):
+    snapshot: str
+    status: Literal["new", "changed", "same"]
+    records: tuple[RecordChanges, ...]
+    new_media: tuple[str, ...]
+    updated_media: tuple[str, ...]
+    reused: Annotated[int, Field(ge=0)]
+    unavailable: tuple[str, ...]
 
 
 def local_publish_source(request: Request, tree: Tree) -> Path | None:
@@ -175,7 +213,9 @@ def local_publish_source(request: Request, tree: Tree) -> Path | None:
     return source if source.is_file() and same_file(tree.path, source) else None
 
 
-def run_publisher(source: Path) -> PublishResult:
+def run_publisher[Result: Record](
+    source: Path, result_type: type[Result], *options: str
+) -> Result:
     """Invoke the local publisher and keep its SSH children in the same group."""
     try:
         with subprocess.Popen(
@@ -184,6 +224,7 @@ def run_publisher(source: Path) -> PublishResult:
                 str(PUBLISH_SCRIPT),
                 "--with-media",
                 "--json",
+                *options,
                 str(source),
             ],
             stdin=subprocess.DEVNULL,
@@ -209,9 +250,11 @@ def run_publisher(source: Path) -> PublishResult:
 
     if process.returncode != 0:
         message = stderr.strip()[-1400:] or "Publish failed. Try again."
-        raise HTTPException(status_code=502, detail=message)
+        raise HTTPException(
+            status_code=409 if process.returncode == 3 else 502, detail=message
+        )
     try:
-        return PublishResult.model_validate_json(stdout, strict=True)
+        return result_type.model_validate_json(stdout, strict=True)
     except ValidationError as error:
         message = "The publisher returned an unreadable result. Check the VM reader."
         raise HTTPException(status_code=502, detail=message) from error
@@ -231,10 +274,14 @@ app = FastAPI(title="RootsMagic Reader", docs_url=None, redoc_url=None)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts())
 templates = Environment(loader=FileSystemLoader(HERE), autoescape=select_autoescape())
 reader_access = ReaderAccess.from_environment()
-comment_store = Comments(
+tree_state = TreeState(
     comments_path(reader_access.accounts.path if reader_access.accounts else None)
 )
+comment_store = Comments(tree_state)
+follow_up_store = FollowUps(tree_state)
+chart_links = ChartLinks(tree_state)
 app.include_router(account_router(reader_access, templates))
+app.include_router(follow_up_router(reader_access, follow_up_store, templates))
 
 
 @app.middleware("http")
@@ -250,7 +297,9 @@ async def local_headers(
         "default-src 'none'; style-src 'self'; form-action 'self'; "
         "frame-ancestors 'none'; base-uri 'none'"
     )
-    if request.url.path == "/pedigree":
+    if request.url.path == "/pedigree" or request.url.path.startswith(
+        "/pedigree/share/"
+    ):
         policy += "; script-src 'self'; connect-src 'self'; img-src 'self'"
     elif request.url.path in {
         "/login",
@@ -389,6 +438,16 @@ def api_pedigree(
 @app.get("/pedigree", include_in_schema=False)
 def pedigree_page(request: Request, tree: SelectedTree) -> HTMLResponse:
     """Serve the interactive chart."""
+    return render_pedigree(request, tree)
+
+
+def render_pedigree(
+    request: Request,
+    tree: Tree,
+    *,
+    shared: ChartLink | None = None,
+    shared_changed: bool = False,
+) -> HTMLResponse:
     return HTMLResponse(
         templates.get_template("pedigree.html").render(
             tree=tree,
@@ -397,6 +456,9 @@ def pedigree_page(request: Request, tree: SelectedTree) -> HTMLResponse:
             local_system=reader_access.local_browser(request),
             starting_person=tree.starting_person() or 0,
             chart_settings=site_settings().chart,
+            shared_person=shared.person_id if shared else None,
+            shared_view=shared.view.model_dump_json(by_alias=True) if shared else None,
+            shared_changed=shared_changed,
             comments_token=comments_token(request),
             publish_token=PUBLISH_TOKEN
             if local_publish_source(request, tree)
@@ -405,9 +467,52 @@ def pedigree_page(request: Request, tree: SelectedTree) -> HTMLResponse:
     )
 
 
-@app.post("/api/v1/pedigree/publish", include_in_schema=False)
-def api_publish(request: Request, tree: SelectedTree) -> PublishResult:
-    """Publish the working tree only after a same-origin local browser action."""
+@app.post("/api/v1/pedigree/share", tags=["Pedigree"], status_code=201)
+async def api_share_chart(request: Request, tree: SelectedTree) -> ChartLinkURL:
+    mutation_actor(request)
+    body = await read_json(request, 512 * 1024)
+    try:
+        draft = ChartLinkDraft.model_validate_json(body, strict=True)
+    except ValidationError as error:
+        raise HTTPException(
+            status_code=422, detail="This chart view could not be shared."
+        ) from error
+    return await run_in_threadpool(chart_links.create, tree, draft)
+
+
+@app.get("/pedigree/share/{token}", include_in_schema=False)
+def shared_chart(
+    request: Request, token: Annotated[str, PathParam(pattern=TOKEN_PATTERN)]
+) -> HTMLResponse:
+    reader_actor(request)
+    link = chart_links.get(token)
+    tree = next(
+        (
+            item
+            for item in reader_access.visible_trees(request)
+            if link and item.slug == link.tree_slug
+        ),
+        None,
+    )
+    if tree is None or link is None:
+        raise HTTPException(
+            status_code=404,
+            detail="This shared chart is unavailable. Check that you have access to its tree.",
+        )
+    revision = record_revision(tree, link.person_id)
+    if revision is None:
+        raise HTTPException(
+            status_code=410,
+            detail="The starting record for this shared chart is no longer available.",
+        )
+    return render_pedigree(
+        request, tree, shared=link, shared_changed=revision != link.revision
+    )
+
+
+@contextmanager
+def authorized_publish(request: Request, tree: Tree) -> Iterator[Path]:
+    """Allow one preview or publication at a time on the local Mac reader."""
     source = local_publish_source(request, tree)
     if source is None:
         raise HTTPException(status_code=404, detail="Publishing is unavailable here.")
@@ -422,9 +527,24 @@ def api_publish(request: Request, tree: SelectedTree) -> PublishResult:
     if not PUBLISH_LOCK.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="A publish is already running.")
     try:
-        return run_publisher(source)
+        yield source
     finally:
         PUBLISH_LOCK.release()
+
+
+@app.post("/api/v1/pedigree/publish/preview", include_in_schema=False)
+def api_publish_preview(request: Request, tree: SelectedTree) -> PublishPreview:
+    with authorized_publish(request, tree) as source:
+        return run_publisher(source, PublishPreview, "--preview")
+
+
+@app.post("/api/v1/pedigree/publish", include_in_schema=False)
+def api_publish(
+    request: Request, tree: SelectedTree, confirmation: PublishPlan
+) -> PublishResult:
+    """Publish only the snapshot and media reviewed in the preview."""
+    with authorized_publish(request, tree) as source:
+        return run_publisher(source, PublishResult, "--expect-plan", confirmation.plan)
 
 
 @app.get("/api/v1/pedigree/{person_id}/details", tags=["Pedigree"])
@@ -442,12 +562,13 @@ def api_comments(
     person_id: RecordID,
     tree: SelectedTree,
     limit: Limit = 50,
-    before: Annotated[int | None, Query(ge=1, le=2**63 - 1)] = None,
+    before: BeforeComment = None,
 ) -> CommentPage:
     """List comments on a person in the selected tree."""
-    require_comments(request)
     cursor = CommentID(before) if before is not None else None
-    return comment_store.page(tree, PersonID(person_id), limit, cursor)
+    return comment_store.page(
+        tree, reader_actor(request), PersonID(person_id), limit, cursor
+    )
 
 
 @app.post("/api/v1/pedigree/{person_id}/comments", tags=["Pedigree"], status_code=201)
@@ -455,10 +576,61 @@ async def api_add_comment(
     request: Request, person_id: RecordID, tree: SelectedTree
 ) -> Comment:
     """Append a plain-text comment as the current reader."""
-    author = comment_author(request)
+    author = mutation_actor(request)
     draft = await read_comment(request)
     return await run_in_threadpool(
         comment_store.add, tree, PersonID(person_id), author, draft
+    )
+
+
+@app.patch("/api/v1/pedigree/{person_id}/comments/{comment_id}", tags=["Pedigree"])
+async def api_edit_comment(
+    request: Request, person_id: RecordID, comment_id: RecordID, tree: SelectedTree
+) -> Comment:
+    """Edit a comment as its original author."""
+    actor = mutation_actor(request)
+    draft = await read_comment(request)
+    return await run_in_threadpool(
+        comment_store.edit,
+        tree,
+        PersonID(person_id),
+        CommentID(comment_id),
+        actor,
+        draft,
+    )
+
+
+@app.delete(
+    "/api/v1/pedigree/{person_id}/comments/{comment_id}",
+    tags=["Pedigree"],
+    status_code=204,
+)
+def api_remove_comment(
+    request: Request, person_id: RecordID, comment_id: RecordID, tree: SelectedTree
+) -> Response:
+    """Remove a comment as a reader administrator."""
+    comment_store.remove(
+        tree, PersonID(person_id), CommentID(comment_id), mutation_actor(request)
+    )
+    return Response(status_code=204)
+
+
+@app.get("/pedigree/comments", include_in_schema=False)
+def recent_comments(
+    request: Request, tree: SelectedTree, before: BeforeComment = None
+) -> HTMLResponse:
+    """Show the latest comments for the current tree."""
+    cursor = CommentID(before) if before is not None else None
+    page = comment_store.page(tree, reader_actor(request), None, 30, cursor)
+    people = person_names(tree.path, tuple({item.person_id for item in page.comments}))
+    return HTMLResponse(
+        templates.get_template("reader-recent-comments.html").render(
+            tree=tree,
+            page=page,
+            people=people,
+            reader_session=current_session(request),
+            system_local=reader_access.local_browser(request),
+        )
     )
 
 
@@ -475,8 +647,28 @@ def api_relationship(
 
 
 @app.post("/api/v1/pedigree/research-gaps", tags=["Pedigree"])
-def api_research_gaps(request: GapRequest, tree: SelectedTree) -> ResearchGaps:
-    return research_gaps(tree.path, tuple(map(PersonID, request.person_ids)))
+def api_research_gaps(
+    request: Request, query: GapRequest, tree: SelectedTree
+) -> ResearchGaps:
+    person_ids = tuple(map(PersonID, query.person_ids))
+    result = research_gaps(tree.path, person_ids)
+    if not query.include_follow_ups:
+        return result
+    saved = follow_up_store.statuses(tree, reader_actor(request).id, person_ids)
+    return ResearchGaps(people=result.people, saved_follow_ups=saved)
+
+
+@app.post("/api/v1/pedigree/follow-ups", tags=["Pedigree"], status_code=201)
+async def api_save_follow_up(request: Request, tree: SelectedTree) -> FollowUp:
+    actor = mutation_actor(request)
+    body = await read_json(request, 512)
+    try:
+        draft = FollowUpDraft.model_validate_json(body, strict=True)
+    except ValidationError as error:
+        raise HTTPException(
+            status_code=422, detail="Choose a person and a research gap."
+        ) from error
+    return await run_in_threadpool(follow_up_store.save, tree, actor.id, draft)
 
 
 @app.get("/api/v1/pedigree/{person_id}/evidence", tags=["Pedigree"])
@@ -609,6 +801,16 @@ def pedigree_tools_script() -> FileResponse:
 def pedigree_worklist_script() -> FileResponse:
     """Serve the research worklist interactions."""
     return FileResponse(HERE / "pedigree-worklist.js", media_type="text/javascript")
+
+
+@app.get("/pedigree-share.js", include_in_schema=False)
+def pedigree_share_script() -> FileResponse:
+    return FileResponse(HERE / "pedigree-share.js", media_type="text/javascript")
+
+
+@app.get("/pedigree-publish.js", include_in_schema=False)
+def pedigree_publish_script() -> FileResponse:
+    return FileResponse(HERE / "pedigree-publish.js", media_type="text/javascript")
 
 
 @app.get("/", include_in_schema=False)

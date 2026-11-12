@@ -15,8 +15,10 @@
   <script defer src="/pedigree-tools.js"></script>
   <script defer src="/pedigree-worklist.js"></script>
   <script defer src="/pedigree.js"></script>
+  {% if comments_token %}<script defer src="/pedigree-share.js"></script>{% endif %}
+  {% if publish_token %}<script defer src="/pedigree-publish.js"></script>{% endif %}
 </head>
-<body data-tree="{{ tree.slug }}" data-starting-person="{{ starting_person }}">
+<body data-tree="{{ tree.slug }}" data-starting-person="{{ starting_person }}"{% if shared_view %} data-shared-person="{{ shared_person }}" data-shared-view="{{ shared_view }}"{% endif %}>
   {% with pedigree_header=true %}{% include "reader-masthead.html" %}{% endwith %}
   <main class="shell">
     <div class="page-header">
@@ -34,6 +36,7 @@
           </div>
         </form>
         <button class="reset" id="pedigree-refresh" type="button">Refresh</button>
+        {% if comments_token %}<button class="reset" id="pedigree-share" type="button" aria-haspopup="dialog" disabled>Share chart</button>{% endif %}
         {% if publish_token %}
         <button class="reset" id="pedigree-publish" type="button" data-publish-token="{{ publish_token }}">Publish</button>
         {% endif %}
@@ -44,6 +47,7 @@
     {% if publish_token %}
     <p class="hint publish-status" id="pedigree-publish-status" role="status"></p>
     {% endif %}
+    {% if shared_changed %}<p class="hint" role="status">The starting person’s record has changed since this link was created. The chart shows the current record.</p>{% endif %}
     <section class="tree" aria-labelledby="pedigree-root">
       <div class="tree-header">
         <div class="root-summary">
@@ -79,6 +83,10 @@
                 <div class="chart-navigation">
                   <button class="reset" id="pedigree-relationship" type="button" aria-haspopup="dialog" disabled>Find relationship</button>
                   <button class="reset" id="pedigree-worklist" type="button" aria-haspopup="dialog" aria-controls="research-worklist" disabled>Research worklist</button>
+                  {% if comments_token %}
+                  <a class="reset" href="{{ tree.url('/pedigree/follow-ups') }}">Saved follow-ups</a>
+                  <a class="reset" href="{{ tree.url('/pedigree/comments') }}">Recent comments</a>
+                  {% endif %}
                   <label class="children-toggle"><input id="pedigree-show-gaps" type="checkbox" disabled> Show research gaps</label>
                 </div>
                 <p id="pedigree-gap-status" class="hint" role="status"></p>
@@ -190,6 +198,7 @@
         </label>
       </div>
       <p id="worklist-status" class="details-status" role="status"></p>
+      <p id="worklist-save-status" class="details-status" role="status"></p>
       <button class="reset" id="worklist-retry" type="button" hidden>Try again</button>
     </div>
     <div class="details-scroll">
@@ -198,6 +207,40 @@
       <button class="reset" id="worklist-more" type="button" hidden>Show more</button>
     </div>
   </dialog>
+  {% if comments_token %}
+  <dialog class="reader-dialog" id="share-chart-dialog" aria-labelledby="share-chart-title">
+    <div class="details-heading">
+      <h2 id="share-chart-title">Share chart</h2>
+      <form method="dialog"><button class="reset" type="submit" autofocus>Close</button></form>
+    </div>
+    <p class="hint">Recipients use their existing access to this tree.</p>
+    <p id="share-chart-status" role="status"></p>
+    <div id="share-chart-result" class="chart-share-result" hidden>
+      <label for="share-chart-link">Chart link</label>
+      <input id="share-chart-link" readonly>
+      <button class="reset" id="share-chart-copy" type="button">Copy link</button>
+    </div>
+  </dialog>
+  {% endif %}
+  {% if publish_token %}
+  <dialog class="reader-dialog publish-preview" id="publish-preview" aria-labelledby="publish-preview-title">
+    <div class="details-heading">
+      <h2 id="publish-preview-title">Preview publish</h2>
+      <form method="dialog"><button class="reset" type="submit" autofocus>Close</button></form>
+    </div>
+    <p>{{ tree.name }}</p>
+    <p id="publish-preview-status" class="hint" role="status"></p>
+    <div id="publish-preview-plan" hidden>
+      <h3>Tree snapshot</h3>
+      <p id="publish-preview-snapshot"></p>
+      <ul id="publish-preview-records"></ul>
+      <h3>Linked media</h3>
+      <p id="publish-preview-counts"></p>
+      <div id="publish-preview-media"></div>
+      <button class="reset" id="publish-confirm" type="button" disabled>Publish to VM</button>
+    </div>
+  </dialog>
+  {% endif %}
   {% include "image-preview.html" %}
 </body>
 </html>

@@ -52,18 +52,18 @@ Check off a step when its behavior has been verified. **P1** covers the current 
 
 ## P2 · Research and publishing
 
-- [ ] **Manage comments**
-  - [ ] Let authors correct their own comments and give administrators a way to remove a comment when needed.
-  - [ ] Add a recent-comments view for the current tree so family members can find new contributions.
-- [ ] **Make research gaps actionable**
-  - [ ] Let the researcher save a gap as a follow-up and mark it complete.
-  - [ ] Show the saved items by tree, person, and status, with a direct link back to each record.
-- [ ] **Preview a Publish**
-  - [ ] Show the selected tree, snapshot changes, and new or missing media before transfer.
-  - [ ] Summarize what the VM accepted after publication and keep the previous snapshot available for rollback.
-- [ ] **Share the current chart view**
-  - [ ] Add a link that preserves the tree, starting person, and visible chart settings.
-  - [ ] Verify recipients need their existing tree access and see a clear message if the linked record has changed.
+- [x] **Manage comments**
+  - [x] Let authors correct their own comments and give administrators a way to remove a comment when needed.
+  - [x] Add a recent-comments view for the current tree so family members can find new contributions.
+- [x] **Make research gaps actionable**
+  - [x] Let the researcher save a gap as a follow-up and mark it complete.
+  - [x] Show the saved items by tree, person, and status, with a direct link back to each record.
+- [x] **Preview a Publish**
+  - [x] Show the selected tree, snapshot changes, and new or missing media before transfer.
+  - [x] Summarize what the VM accepted after publication and keep the previous snapshot available for rollback.
+- [x] **Share the current chart view**
+  - [x] Add a link that preserves the tree, starting person, and visible chart settings.
+  - [x] Verify recipients need their existing tree access and see a clear message if the linked record has changed.
 
 ## P3 · Sharing outside the family
 

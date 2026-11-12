@@ -352,6 +352,19 @@ def search_rows(
         return rows, int(total_row[0])
 
 
+def person_names(path: Path, people: tuple[PersonID, ...]) -> dict[PersonID, str]:
+    """Find primary names for the current page of reader state."""
+    if not people:
+        return {}
+    placeholders = ", ".join("?" for _ in people)
+    with connect(path) as db:
+        rows = db.execute(
+            f"SELECT id, name FROM ({NAME}) WHERE id IN ({placeholders})",
+            people,  # noqa: S608
+        )
+        return {PersonID(row["id"]): row["name"] for row in rows}
+
+
 def profile(path: Path, person_id: PersonID) -> Profile | None:
     """Read one person, immediate relatives and personal or family events."""
     with connect(path) as db:

@@ -30,6 +30,12 @@ from publish_media import (
     media_plan,
     stage_media,
 )
+from publish_preview import (
+    PublishPreview,
+    TargetPreview,
+    index_snapshot,
+    preview_publication,
+)
 
 if TYPE_CHECKING:
     from typing import BinaryIO
@@ -49,8 +55,14 @@ class PublishError(RuntimeError):
     """A snapshot failed verification or cannot replace the current tree safely."""
 
 
+class PreviewChanged(PublishError):
+    """The source or destination changed after a publication preview."""
+
+
 class PublishResult(TypedDict):
     status: Literal["published", "already_published"]
+    snapshot: str
+    backup: str | None
     copied: int
     replaced: int
     reused: int
@@ -120,22 +132,71 @@ def sync_directory(path: Path) -> None:
         os.close(directory)
 
 
-def receive_snapshot(
-    root: Path, name: str, expected: str, media: StagedMedia | None = None
-) -> PublishResult:
-    """Verify the stream before replacing the live file under a publisher lock."""
-    name = tree_filename(name)
+def current_checksum(destination: Path) -> str | None:
+    """Inspect a live tree without following links or reading SQLite sidecars."""
+    if destination.is_symlink() or (destination.exists() and not destination.is_file()):
+        raise PublishError(f"The published path is not a regular file: {destination}.")
+    if any(
+        os.path.lexists(f"{destination}{suffix}")
+        for suffix in ("-wal", "-shm", "-journal")
+    ):
+        raise PublishError(f"SQLite sidecar files exist beside {destination}.")
+    return digest(destination) if destination.exists() else None
+
+
+def publication_directories(root: Path) -> tuple[Path, Path, Path]:
     trees, incoming, backups = (
         root / name for name in ("trees", "incoming", "backups")
     )
     for directory in (trees, incoming, backups):
         if directory.is_symlink() or not directory.is_dir():
-            message = f"Expected a real directory at {directory}."
-            raise PublishError(message)
+            raise PublishError(f"Expected a real directory at {directory}.")
     if len({directory.stat().st_dev for directory in (trees, incoming, backups)}) != 1:
-        message = "Trees, incoming, and backups must be on the same filesystem."
-        raise PublishError(message)
+        raise PublishError(
+            "Trees, incoming, and backups must be on the same filesystem."
+        )
+    return trees, incoming, backups
 
+
+def inspect_target(
+    root: Path,
+    name: str,
+    expected: str,
+    nas: Path | None,
+    checks: tuple[MediaCheck, ...],
+) -> TargetPreview:
+    """Read the published record index and NAS media status before sending files."""
+    trees, incoming, _ = publication_directories(root)
+    destination = trees / tree_filename(name)
+    with (incoming / ".publish.lock").open("ab") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_SH)
+        checksum = current_checksum(destination)
+        records = (
+            index_snapshot(destination) if checksum and checksum != expected else {}
+        )
+    unavailable: list[str] = []
+    changes = (
+        media_plan(nas, checks, unavailable=unavailable) if nas is not None else ()
+    )
+    return {
+        "checksum": checksum,
+        "records": records,
+        "changes": changes,
+        "unavailable": unavailable,
+    }
+
+
+def receive_snapshot(
+    root: Path,
+    name: str,
+    expected: str,
+    media: StagedMedia | None = None,
+    *,
+    previous_checksum: str | None = None,
+) -> PublishResult:
+    """Verify the stream before replacing the live file under a publisher lock."""
+    name = tree_filename(name)
+    trees, incoming, backups = publication_directories(root)
     destination = trees / name
     with NamedTemporaryFile(prefix="tree-", dir=incoming, delete=False) as stream:
         staged = Path(stream.name)
@@ -151,27 +212,21 @@ def receive_snapshot(
 
             with (incoming / ".publish.lock").open("ab") as lock:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-                if destination.is_symlink() or (
-                    destination.exists() and not destination.is_file()
+                current = current_checksum(destination)
+                if previous_checksum is not None and previous_checksum != (
+                    current or "-"
                 ):
-                    message = (
-                        f"The published path is not a regular file: {destination}."
+                    raise PreviewChanged(
+                        "The published tree changed. Open a new preview."
                     )
-                    raise PublishError(message)
-                if any(
-                    os.path.lexists(f"{destination}{suffix}")
-                    for suffix in ("-wal", "-shm", "-journal")
-                ):
-                    message = f"SQLite sidecar files exist beside {destination}."
-                    raise PublishError(message)
-                already_published = (
-                    destination.exists() and digest(destination) == expected
-                )
-                if destination.exists() and not already_published:
+                already_published = current == expected
+                backup = None
+                if current is not None and not already_published:
                     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
                     previous = backups / f"{stamp}--{name}"
                     os.link(destination, previous)
                     sync_directory(backups)
+                    backup = previous.name
                 with media.install() if media is not None else nullcontext():
                     if not already_published:
                         staged.replace(destination)
@@ -182,6 +237,8 @@ def receive_snapshot(
                     "status": "published"
                     if changes or not already_published
                     else "already_published",
+                    "snapshot": name,
+                    "backup": backup,
                     "copied": sum(change.previous is None for change in changes),
                     "replaced": sum(change.previous is not None for change in changes),
                     "reused": len(media.checks) - len(changes)
@@ -203,6 +260,8 @@ def describe(result: PublishResult, destination: Path) -> str:
         )
     if result["replaced"]:
         lines.append("Previous versions were kept in the NAS PreviousMedia folder.")
+    if result["backup"]:
+        lines.append(f"Previous tree snapshot saved as {result['backup']}.")
     return "\n".join(lines)
 
 
@@ -212,12 +271,16 @@ def run_remote(
     """Run the same receiver code on the VM over the verified SSH connection."""
     path = Path(__file__).resolve()
     media_code = path.with_name("publish_media.py").read_text(encoding="utf-8")
+    preview_code = path.with_name("publish_preview.py").read_text(encoding="utf-8")
     receiver = path.read_text(encoding="utf-8")
     script = (
         "import sys, types\n"
         "media = types.ModuleType('publish_media')\n"
         "sys.modules['publish_media'] = media\n"
         f"exec({media_code!r}, media.__dict__)\n"
+        "preview = types.ModuleType('publish_preview')\n"
+        "sys.modules['publish_preview'] = preview\n"
+        f"exec({preview_code!r}, preview.__dict__)\n"
         f"exec({receiver!r})\n"
     )
     command = shlex.join(("python3", "-I", "-c", script, *args))
@@ -247,6 +310,8 @@ def run_remote(
     )
     if result.returncode:
         reason = result.stderr.decode(errors="replace").strip()[-700:]
+        if result.returncode == 3:
+            raise PreviewChanged(reason)
         raise PublishError(reason or f"SSH exited with status {result.returncode}.")
     return result.stdout
 
@@ -311,19 +376,25 @@ def stream_snapshot(
     production: Path,
     nas: Path,
     media: tuple[LocalMedia, ...] | None = None,
+    *,
+    target: TargetPreview | None = None,
 ) -> PublishResult:
     """Send just the files requested by the VM and the verified SQLite snapshot."""
     receiver_args = (str(production), name, digest(snapshot))
+    previous = ((target["checksum"] or "-"),) if target is not None else ()
     if media is None:
         with snapshot.open("rb") as stream:
             result = run_remote(
-                server, "--receive", *receiver_args, "--json", stream=stream
+                server, "--receive", *receiver_args, "--json", *previous, stream=stream
             )
     else:
         checks = tuple(asset.check for asset in media)
         manifest = json.dumps(checks).encode() + b"\n"
-        response = run_remote(server, "--plan-media", str(nas), data=manifest)
-        changes = decode_changes(response, checks)
+        if target is None:
+            response = run_remote(server, "--plan-media", str(nas), data=manifest)
+            changes = decode_changes(response, checks)
+        else:
+            changes = target["changes"]
         with TemporaryDirectory(prefix="rootsmagic-transfer-") as directory:
             bundle = Path(directory) / "snapshot-with-media"
             with bundle.open("w+b") as stream:
@@ -349,21 +420,59 @@ def stream_snapshot(
                     "--receive-with-media",
                     *receiver_args,
                     str(nas),
+                    *previous,
                     stream=stream,
                 )
     return json.loads(result)
 
 
+def plan_publication(
+    snapshot: Path,
+    name: str,
+    server: str,
+    production: Path,
+    nas: Path | None,
+    checks: tuple[MediaCheck, ...],
+    unavailable: list[str],
+) -> tuple[PublishPreview, TargetPreview]:
+    checksum = digest(snapshot)
+    response = run_remote(
+        server,
+        "--preview-target",
+        str(production),
+        name,
+        checksum,
+        str(nas) if nas is not None else "-",
+        data=json.dumps(checks).encode() + b"\n",
+    )
+    target: TargetPreview = json.loads(response)
+    target["changes"] = decode_changes(json.dumps(target["changes"]).encode(), checks)
+    return preview_publication(
+        snapshot, name, checksum, target, checks, unavailable
+    ), target
+
+
 def main(argv: list[str]) -> None:
     """Handle the user-facing command or a snapshot received over SSH."""
-    if argv[:1] == ["--receive"] and len(argv) in (4, 5):
+    if argv[:1] == ["--receive"] and len(argv) in (4, 5, 6):
         _, root, name, expected, *options = argv
-        result = receive_snapshot(Path(root), name, expected)
+        previous = options[1] if len(options) == 2 else None
+        result = receive_snapshot(
+            Path(root), name, expected, previous_checksum=previous
+        )
         print(
             json.dumps(result)
-            if options == ["--json"]
+            if options[:1] == ["--json"]
             else describe(result, Path(root) / "trees" / name)
         )
+        return
+    if argv[:1] == ["--preview-target"] and len(argv) == 5:
+        _, root, name, expected, nas = argv
+        checks = decode_checks(sys.stdin.buffer.readline())
+        target = inspect_target(
+            Path(root), name, expected, None if nas == "-" else Path(nas), checks
+        )
+        print(json.dumps(target))
         return
     if argv[:1] == ["--plan-media"] and len(argv) == 2:
         _, nas = argv
@@ -373,13 +482,19 @@ def main(argv: list[str]) -> None:
             )
         )
         return
-    if argv[:1] == ["--receive-with-media"] and len(argv) == 5:
-        _, root, name, expected, nas = argv
+    if argv[:1] == ["--receive-with-media"] and len(argv) in (5, 6):
+        _, root, name, expected, nas, *options = argv
         stream = sys.stdin.buffer
         checks = decode_checks(stream.readline())
         changes = decode_changes(stream.readline(), checks)
         with stage_media(Path(nas), checks, changes, stream) as media:
-            result = receive_snapshot(Path(root), name, expected, media)
+            result = receive_snapshot(
+                Path(root),
+                name,
+                expected,
+                media,
+                previous_checksum=options[0] if options else None,
+            )
         print(json.dumps(result))
         return
 
@@ -397,6 +512,15 @@ def main(argv: list[str]) -> None:
     )
     parser.add_argument(
         "--json", action="store_true", help="emit a machine-readable publication result"
+    )
+    preview_options = parser.add_mutually_exclusive_group()
+    preview_options.add_argument(
+        "--preview",
+        action="store_true",
+        help="compare the tree and media before transfer",
+    )
+    preview_options.add_argument(
+        "--expect-plan", help="publish only if the preview still matches"
     )
     parser.add_argument(
         "--projects-root",
@@ -417,11 +541,42 @@ def main(argv: list[str]) -> None:
         snapshot = Path(directory) / "snapshot.rmtree"
         make_snapshot(source, snapshot)
         media = None
+        unavailable: list[str] = []
         if args.with_media:
             with closing(open_tree(snapshot)) as db:
-                media = local_media(db, args.projects_root.expanduser())
+                media = local_media(
+                    db,
+                    args.projects_root.expanduser(),
+                    unavailable=unavailable
+                    if args.preview or args.expect_plan
+                    else None,
+                )
+        target = None
+        if args.preview or args.expect_plan:
+            preview, target = plan_publication(
+                snapshot,
+                name,
+                args.server,
+                args.production,
+                args.nas_root if media is not None else None,
+                tuple(item.check for item in media or ()),
+                unavailable,
+            )
+            if args.preview:
+                print(json.dumps(preview, indent=None if args.json else 2))
+                return
+            if preview["unavailable"] or preview["plan"] != args.expect_plan:
+                raise PreviewChanged(
+                    "The tree or its linked media changed. Open a new preview."
+                )
         result = stream_snapshot(
-            snapshot, name, args.server, args.production, args.nas_root, media
+            snapshot,
+            name,
+            args.server,
+            args.production,
+            args.nas_root,
+            media,
+            target=target,
         )
     print(
         json.dumps(result)
@@ -435,5 +590,8 @@ if __name__ == "__main__":
         main(sys.argv[1:])
     except subprocess.TimeoutExpired:
         sys.exit("Snapshot publish over SSH timed out.")
+    except PreviewChanged as error:
+        print(error, file=sys.stderr)
+        sys.exit(3)
     except (OSError, PublishError, MediaError, sqlite3.Error, ValueError) as error:
         sys.exit(f"Snapshot publish failed: {error}")

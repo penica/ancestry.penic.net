@@ -2,14 +2,8 @@
 
 from __future__ import annotations
 
-import os
-import sqlite3
-import stat
-import sys
-from contextlib import closing, contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
 from secrets import token_urlsafe
 from typing import TYPE_CHECKING, Annotated, Final, NewType
 
@@ -17,36 +11,21 @@ from fastapi import HTTPException
 from pydantic import ConfigDict, StringConstraints, ValidationError
 
 from reader_access import current_session, verify_csrf
-from store import Record, connect
+from reader_tree_state import TreeState, initialize, initialized
+from store import PersonID, Record, connect
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    import sqlite3
 
     from fastapi import Request
 
-    from store import PersonID
     from tree_catalog import Tree
 
 CommentID = NewType("CommentID", int)
-APPLICATION_ID: Final = 0x524D434D
 MAX_LENGTH: Final = 2000
 JSON_LIMIT: Final = MAX_LENGTH * 12 + 128
 LOCAL_TOKEN: Final = token_urlsafe(32)
 LOOPBACK: Final = frozenset({"127.0.0.1", "::1", "localhost"})
-CREATE_COMMENTS: Final = """
-    CREATE TABLE comments (
-        id INTEGER PRIMARY KEY,
-        tree_slug TEXT NOT NULL,
-        person_id INTEGER NOT NULL,
-        author TEXT NOT NULL,
-        body TEXT NOT NULL,
-        created_at TEXT NOT NULL
-    )
-"""
-
-
-class CommentStorageError(RuntimeError):
-    """The configured database is not safe to use as a comment store."""
 
 
 class CommentDraft(Record):
@@ -63,9 +42,13 @@ class Comment(Record):
     """A stored person comment with its original author and creation time."""
 
     id: CommentID
+    person_id: PersonID
     author: str
     body: str
     created_at: str
+    edited_at: str | None = None
+    can_edit: bool = False
+    can_remove: bool = False
 
 
 class CommentPage(Record):
@@ -75,113 +58,146 @@ class CommentPage(Record):
     next_before: CommentID | None = None
 
 
-def comments_path(accounts_path: Path | None) -> Path:
-    """Keep hosted comments beside account state and local comments in app data."""
-    if configured := os.environ.get("ROOTSMAGIC_COMMENTS_DB"):
-        return Path(configured).expanduser().absolute()
-    if accounts_path is not None:
-        return accounts_path.with_name("comments.sqlite3").expanduser().absolute()
-    if sys.platform == "darwin":
-        data = Path.home() / "Library" / "Application Support" / "RootsMagic Reader"
-    else:
-        xdg_data = os.environ.get("XDG_DATA_HOME")
-        data = (Path(xdg_data) if xdg_data else Path.home() / ".local" / "share") / (
-            "rootsmagic-reader"
+@dataclass(frozen=True, slots=True)
+class ReaderActor:
+    """The stable account identity behind reader state changes."""
+
+    id: int
+    name: str
+    administrator: bool
+
+    def owns_comment(self, row: sqlite3.Row) -> bool:
+        """Legacy hosted display names do not establish ownership."""
+        author_id = dict(row).get("author_id")
+        return author_id == self.id or (
+            author_id is None and self.id == 0 and row["author"] == "Local reader"
         )
-    return data / "comments.sqlite3"
 
 
-def _initialized(db: sqlite3.Connection) -> bool:
-    """Accept our database or an untouched file left by an earlier startup."""
-    app_id: int = db.execute("PRAGMA application_id").fetchone()[0]
-    if app_id == APPLICATION_ID:
-        return True
-    if app_id or db.execute("SELECT 1 FROM sqlite_schema LIMIT 1").fetchone():
-        message = "Choose a separate database for reader comments."
-        raise CommentStorageError(message)
-    return False
+def comment_columns(db: sqlite3.Connection) -> set[str]:
+    return {column["name"] for column in db.execute("PRAGMA table_info(comments)")}
+
+
+def prepare_comments(db: sqlite3.Connection) -> None:
+    """Upgrade existing comments under the same transaction as a write."""
+    initialize(db)
+    if "author_id" not in comment_columns(db):
+        db.execute("ALTER TABLE comments ADD COLUMN author_id INTEGER")
+        db.execute("ALTER TABLE comments ADD COLUMN edited_at TEXT")
+        db.execute("ALTER TABLE comments ADD COLUMN removed INTEGER NOT NULL DEFAULT 0")
+        db.execute("CREATE INDEX comments_tree ON comments (tree_slug, id)")
+
+
+def comment_record(row: sqlite3.Row, actor: ReaderActor) -> Comment:
+    return Comment.model_validate(
+        dict(row)
+        | {"can_edit": actor.owns_comment(row), "can_remove": actor.administrator}
+    )
 
 
 @dataclass(frozen=True, slots=True)
 class Comments:
     """Read and append comments by tree slug and RootsMagic person ID."""
 
-    path: Path
-
-    @contextmanager
-    def _connect(self, *, write: bool) -> Iterator[sqlite3.Connection]:
-        if self.path.suffix.lower() == ".rmtree":
-            message = "Choose a separate database for reader comments."
-            raise CommentStorageError(message)
-        try:
-            if write:
-                self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-                with suppress(FileExistsError):
-                    os.close(
-                        os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-                    )
-            mode = self.path.lstat().st_mode
-            if not stat.S_ISREG(mode) or mode & 0o077:
-                message = "The comments database must be a private regular file."
-                raise CommentStorageError(message)
-            access = "rw" if write else "ro"
-            uri = f"{self.path.absolute().as_uri()}?mode={access}"
-            with closing(sqlite3.connect(uri, uri=True, timeout=5)) as db, db:
-                db.row_factory = sqlite3.Row
-                db.execute("BEGIN IMMEDIATE" if write else "BEGIN")
-                yield db
-        except FileNotFoundError:
-            if not write:
-                raise
-            message = "Comments are temporarily unavailable."
-            raise CommentStorageError(message) from None
-        except (OSError, sqlite3.Error) as error:
-            message = "Comments are temporarily unavailable."
-            raise CommentStorageError(message) from error
+    state: TreeState
 
     def page(
-        self, tree: Tree, person_id: PersonID, limit: int, before: CommentID | None
+        self,
+        tree: Tree,
+        actor: ReaderActor,
+        person_id: PersonID | None,
+        limit: int,
+        before: CommentID | None,
     ) -> CommentPage:
         """List one bounded page without creating an empty database on read."""
-        require_person(tree, person_id)
+        if person_id is not None:
+            require_person(tree, person_id)
         newest_id = before - 1 if before is not None else 2**63 - 1
         try:
-            with self._connect(write=False) as db:
-                if not _initialized(db):
+            with self.state.connect(write=False) as db:
+                if not initialized(db):
                     return CommentPage(comments=())
+                active = "AND removed = 0" if "removed" in comment_columns(db) else ""
+                person_filter = "AND person_id = ?" if person_id is not None else ""
+                parameters: tuple[str | int, ...] = (tree.slug, newest_id)
+                if person_id is not None:
+                    parameters += (person_id,)
                 rows = db.execute(
-                    """SELECT id, author, body, created_at FROM comments
-                       WHERE tree_slug = ? AND person_id = ? AND id <= ?
-                       ORDER BY id DESC LIMIT ?""",
-                    (tree.slug, person_id, newest_id, limit + 1),
+                    f"""SELECT * FROM comments WHERE tree_slug = ? AND id <= ?
+                        {active} {person_filter} ORDER BY id DESC LIMIT ?""",  # noqa: S608
+                    (*parameters, limit + 1),
                 ).fetchall()
         except FileNotFoundError:
             return CommentPage(comments=())
-        comments = tuple(Comment.model_validate(dict(row)) for row in rows[:limit])
+        comments = tuple(comment_record(row, actor) for row in rows[:limit])
         return CommentPage(
             comments=comments,
             next_before=comments[-1].id if len(rows) > limit else None,
         )
 
     def add(
-        self, tree: Tree, person_id: PersonID, author: str, draft: CommentDraft
+        self, tree: Tree, person_id: PersonID, author: ReaderActor, draft: CommentDraft
     ) -> Comment:
         """Append a comment and initialize a new store in the same transaction."""
         require_person(tree, person_id)
         created_at = datetime.now(UTC).isoformat(timespec="seconds")
-        with self._connect(write=True) as db:
-            if not _initialized(db):
-                db.execute(CREATE_COMMENTS)
-                db.execute(
-                    "CREATE INDEX comments_person ON comments (tree_slug, person_id, id)"
-                )
-                db.execute(f"PRAGMA application_id = {APPLICATION_ID}")  # noqa: S608
+        with self.state.connect(write=True) as db:
+            prepare_comments(db)
             row = db.execute(
-                """INSERT INTO comments (tree_slug, person_id, author, body, created_at)
-                   VALUES (?, ?, ?, ?, ?) RETURNING id, author, body, created_at""",
-                (tree.slug, person_id, author, draft.body, created_at),
+                """INSERT INTO comments (tree_slug, person_id, author, body, created_at, author_id)
+                   VALUES (?, ?, ?, ?, ?, ?) RETURNING *""",
+                (tree.slug, person_id, author.name, draft.body, created_at, author.id),
             ).fetchone()
-        return Comment.model_validate(dict(row))
+        return comment_record(row, author)
+
+    def edit(
+        self,
+        tree: Tree,
+        person: PersonID,
+        comment: CommentID,
+        actor: ReaderActor,
+        draft: CommentDraft,
+    ) -> Comment:
+        """Update a comment owned by the signed-in author."""
+        with self.state.connect(write=True) as db:
+            row = editable_comment(db, tree, person, comment)
+            if not actor.owns_comment(row):
+                raise HTTPException(
+                    status_code=403, detail="Only the author can edit this comment."
+                )
+            edited = db.execute(
+                "UPDATE comments SET body = ?, edited_at = ? WHERE id = ? RETURNING *",
+                (draft.body, datetime.now(UTC).isoformat(timespec="seconds"), comment),
+            ).fetchone()
+        return comment_record(edited, actor)
+
+    def remove(
+        self, tree: Tree, person: PersonID, comment: CommentID, actor: ReaderActor
+    ) -> None:
+        """Remove comment text while reserving the ID for existing links and cursors."""
+        if not actor.administrator:
+            raise HTTPException(
+                status_code=403, detail="Administrator access is required."
+            )
+        with self.state.connect(write=True) as db:
+            editable_comment(db, tree, person, comment)
+            db.execute(
+                "UPDATE comments SET body = '', removed = 1 WHERE id = ?", (comment,)
+            )
+
+
+def editable_comment(
+    db: sqlite3.Connection, tree: Tree, person: PersonID, comment: CommentID
+) -> sqlite3.Row:
+    prepare_comments(db)
+    row = db.execute(
+        """SELECT * FROM comments
+           WHERE id = ? AND tree_slug = ? AND person_id = ? AND removed = 0""",
+        (comment, tree.slug, person),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Comment not found.")
+    return row
 
 
 def require_person(tree: Tree, person_id: PersonID) -> None:
@@ -217,13 +233,29 @@ def require_comments(request: Request) -> str:
     return token
 
 
-def comment_author(request: Request) -> str:
-    """Authorize a write and attribute it to the signed-in or local reader."""
-    expected = require_comments(request)
-    tokens = request.headers.getlist("X-CSRF-Token")
-    verify_csrf(expected, tokens[0] if len(tokens) == 1 else "")
+def reader_actor(request: Request) -> ReaderActor:
+    """Return the signed-in or local reader identity."""
+    require_comments(request)
     if session := current_session(request):
-        return session.account.display_name or session.account.username
+        account = session.account
+        return ReaderActor(
+            account.id, account.display_name or account.username, account.administrator
+        )
+    return ReaderActor(0, "Local reader", True)
+
+
+def mutation_actor(request: Request) -> ReaderActor:
+    """Authorize a same-origin state change by the signed-in or local reader."""
+    tokens = request.headers.getlist("X-CSRF-Token")
+    return verify_reader_mutation(request, tokens[0] if len(tokens) == 1 else "")
+
+
+def verify_reader_mutation(request: Request, token: str) -> ReaderActor:
+    """Validate an explicit token from either a JSON request or a form."""
+    verify_csrf(require_comments(request), token)
+    actor = reader_actor(request)
+    if actor.id:
+        return actor
     origin = f"{request.url.scheme}://{request.url.netloc}"
     origins = request.headers.getlist("Origin")
     if origins != [origin] and not (
@@ -233,7 +265,7 @@ def comment_author(request: Request) -> str:
         raise HTTPException(
             status_code=403, detail="Open the local reader and try again."
         )
-    return "Local reader"
+    return actor
 
 
 async def read_comment(request: Request) -> CommentDraft:

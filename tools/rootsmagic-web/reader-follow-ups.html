@@ -1,0 +1,59 @@
+{% extends "reader-account-shell.html" %}
+{% block title %}Saved follow-ups{% endblock %}
+{% block content %}
+<a class="back" href="{{ tree.url('/pedigree') if tree else '/pedigree' }}">Back to pedigree</a>
+<h1>Saved follow-ups</h1>
+<form class="account-form" method="get" action="/pedigree/follow-ups">
+  <div class="account-field">
+    <label for="follow-up-tree">Tree</label>
+    <select id="follow-up-tree" name="tree">
+      <option value="">All accessible trees</option>
+      {% for option in catalog %}<option value="{{ option.slug }}"{% if selected_tree == option.slug %} selected{% endif %}>{{ option.name }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="account-field">
+    <label for="follow-up-person">RootsMagic record ID</label>
+    <input id="follow-up-person" name="person" value="{{ person }}" inputmode="numeric" maxlength="25">
+  </div>
+  <div class="account-field">
+    <label for="follow-up-status">Status</label>
+    <select id="follow-up-status" name="status">
+      <option value="open"{% if status == 'open' %} selected{% endif %}>Open</option>
+      <option value="complete"{% if status == 'complete' %} selected{% endif %}>Completed</option>
+      <option value="all"{% if status == 'all' %} selected{% endif %}>All statuses</option>
+    </select>
+  </div>
+  <button type="submit">Filter</button>
+</form>
+{% for slug, group in items | groupby('tree_slug') %}
+<section aria-label="{{ trees_by_slug[slug].name }}">
+  <h2>{{ trees_by_slug[slug].name }}</h2>
+  <ul class="reader-record-list">
+    {% for item in group %}
+    <li>
+      {% if item.person_id in names[slug] %}
+      <a href="{{ trees_by_slug[slug].url('/pedigree/people/' ~ item.person_id ~ '/record') }}">{{ names[slug][item.person_id] }} · #{{ item.person_id }}</a>
+      {% else %}
+      <p>Person #{{ item.person_id }} is unavailable in this tree.</p>
+      {% endif %}
+      <p>{{ item.label }}</p>
+      <p class="label">{{ 'Completed' if item.completed_at else 'Open' }}</p>
+      <form action="/pedigree/follow-ups/{{ item.id }}/status?{{ filters }}" method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="item_tree" value="{{ slug }}">
+        <button type="submit" name="complete" value="{{ 'no' if item.completed_at else 'yes' }}">{{ 'Reopen' if item.completed_at else 'Mark complete' }}</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% else %}
+<section><p>No follow-ups match these filters.</p></section>
+{% endfor %}
+{% if previous_offset is not none or next_offset is not none %}
+<nav class="pager" aria-label="Follow-up pages">
+  {% if previous_offset is not none %}<a href="/pedigree/follow-ups?{{ filters }}&amp;offset={{ previous_offset }}">Previous page</a>{% endif %}
+  {% if next_offset is not none %}<a href="/pedigree/follow-ups?{{ filters }}&amp;offset={{ next_offset }}">Next page</a>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

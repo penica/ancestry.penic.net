@@ -74,7 +74,9 @@ def registered_path(folder: str | None, filename: str) -> Path:
     return directory / filename
 
 
-def local_media(db: sqlite3.Connection, projects: Path) -> tuple[LocalMedia, ...]:
+def local_media(
+    db: sqlite3.Connection, projects: Path, *, unavailable: list[str] | None = None
+) -> tuple[LocalMedia, ...]:
     """Read and fingerprint the linked files in the exact snapshot being sent."""
     files: dict[str, LocalMedia] = {}
     rows = db.execute(
@@ -93,37 +95,46 @@ def local_media(db: sqlite3.Connection, projects: Path) -> tuple[LocalMedia, ...
         for prefix in (BOOKS, NAS_MEDIA)
     )
     for media_id, folder, filename in rows:
-        if not filename:
-            if folder:
-                raise MediaError(f"Media #{media_id} has a path but no filename.")
-            continue
-        recorded = registered_path(folder, filename)
-        for prefix, destination in (*roots, *archive_roots):
-            if not recorded.is_relative_to(prefix):
+        try:
+            if not filename:
+                if folder:
+                    raise MediaError(f"Media #{media_id} has a path but no filename.")
                 continue
-            target = (destination / recorded.relative_to(prefix)).as_posix()
-            if (prefix, destination) in roots:
-                source = recorded.resolve()
-                if not source.is_relative_to(prefix.resolve()) or not source.is_file():
-                    raise MediaError(
-                        f"Media #{media_id} is missing or outside its Mac folder: {recorded}"
+            recorded = registered_path(folder, filename)
+            for prefix, destination in (*roots, *archive_roots):
+                if not recorded.is_relative_to(prefix):
+                    continue
+                target = (destination / recorded.relative_to(prefix)).as_posix()
+                if (prefix, destination) in roots:
+                    source = recorded.resolve()
+                    if (
+                        not source.is_relative_to(prefix.resolve())
+                        or not source.is_file()
+                    ):
+                        raise MediaError(
+                            f"Media #{media_id} is missing or outside its Mac folder: {recorded}"
+                        )
+                    candidate = LocalMedia(
+                        MediaCheck(target, digest(source), source.stat().st_size),
+                        source,
                     )
-                candidate = LocalMedia(
-                    MediaCheck(target, digest(source), source.stat().st_size), source
-                )
-                prior = files.get(target)
-                if prior and prior.source and prior.check != candidate.check:
-                    raise MediaError(
-                        f"Different source files resolve to the same NAS path: {target}"
-                    )
-                files[target] = candidate
+                    prior = files.get(target)
+                    if prior and prior.source and prior.check != candidate.check:
+                        raise MediaError(
+                            f"Different source files resolve to the same NAS path: {target}"
+                        )
+                    files[target] = candidate
+                else:
+                    files.setdefault(target, LocalMedia(MediaCheck(target, None, 0)))
+                break
             else:
-                files.setdefault(target, LocalMedia(MediaCheck(target, None, 0)))
-            break
-        else:
-            raise MediaError(
-                f"Media #{media_id} is outside the configured Mac and NAS folders: {recorded}"
-            )
+                raise MediaError(
+                    f"Media #{media_id} is outside the configured Mac and NAS folders: {recorded}"
+                )
+        except (MediaError, OSError) as error:
+            if unavailable is None:
+                raise
+            unavailable.append(str(error))
     return tuple(files.values())
 
 
@@ -171,30 +182,37 @@ def target_path(root: Path, check: MediaCheck) -> Path:
     return path
 
 
-def media_plan(root: Path, checks: tuple[MediaCheck, ...]) -> tuple[MediaChange, ...]:
+def media_plan(
+    root: Path, checks: tuple[MediaCheck, ...], *, unavailable: list[str] | None = None
+) -> tuple[MediaChange, ...]:
     """Confirm archived assets and compare every managed file by checksum."""
     check_mount(root)
     changes = []
     for index, check in enumerate(checks):
-        path = target_path(root, check)
-        if path.is_symlink() and check.digest is not None:
-            raise MediaError(
-                f"A NAS link conflicts with the managed media path: {check.path}"
-            )
-        if path.is_file():
-            if check.digest is None:
-                with path.open("rb") as stream:
-                    _ = stream.read(1)
-                continue
-            previous = digest(path)
-            if previous != check.digest:
-                changes.append(MediaChange(index, previous))
-        elif check.digest is not None and not path.exists():
-            changes.append(MediaChange(index, None))
-        else:
-            raise MediaError(
-                f"The VM cannot read the linked media on the NAS: {check.path}"
-            )
+        try:
+            path = target_path(root, check)
+            if path.is_symlink() and check.digest is not None:
+                raise MediaError(
+                    f"A NAS link conflicts with the managed media path: {check.path}"
+                )
+            if path.is_file():
+                if check.digest is None:
+                    with path.open("rb") as stream:
+                        _ = stream.read(1)
+                    continue
+                previous = digest(path)
+                if previous != check.digest:
+                    changes.append(MediaChange(index, previous))
+            elif check.digest is not None and not path.exists():
+                changes.append(MediaChange(index, None))
+            else:
+                raise MediaError(
+                    f"The VM cannot read the linked media on the NAS: {check.path}"
+                )
+        except (MediaError, OSError) as error:
+            if unavailable is None:
+                raise
+            unavailable.append(str(error))
     return tuple(changes)
 
 

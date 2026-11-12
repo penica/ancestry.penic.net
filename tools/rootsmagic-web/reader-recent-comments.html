@@ -1,0 +1,27 @@
+{% extends "reader-account-shell.html" %}
+{% block title %}Recent comments{% endblock %}
+{% block content %}
+<a class="back" href="{{ tree.url('/pedigree') }}">Back to pedigree</a>
+<h1>Recent comments</h1>
+<p>{{ tree.name }}</p>
+{% if page.comments %}
+<ol class="reader-record-list">
+  {% for comment in page.comments %}
+  <li>
+    {% if comment.person_id in people %}
+    <a href="{{ tree.url('/pedigree?person=' ~ comment.person_id) }}">{{ people[comment.person_id] }} · #{{ comment.person_id }}</a>
+    {% else %}
+    <p>Person #{{ comment.person_id }} is unavailable in this tree.</p>
+    {% endif %}
+    <p class="label">{{ comment.author }} · <time datetime="{{ comment.created_at }}">{{ comment.created_at[:10] }}</time>{% if comment.edited_at %} · Edited{% endif %}</p>
+    <p class="record-note">{{ comment.body }}</p>
+  </li>
+  {% endfor %}
+</ol>
+{% if page.next_before %}
+<nav class="pager" aria-label="Comments pages"><a href="{{ tree.url('/pedigree/comments?before=' ~ page.next_before) }}">Older comments</a></nav>
+{% endif %}
+{% else %}
+<p>No comments on this page.</p>
+{% endif %}
+{% endblock %}

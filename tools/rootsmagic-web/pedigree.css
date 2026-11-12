@@ -401,6 +401,17 @@ button.reset { cursor: pointer; }
 .comment-byline { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s1) var(--s3); }
 .comment-byline time { color: var(--muted); font-size: var(--type-small); }
 .comment-list .comment-text { margin-block-start: var(--s1); white-space: pre-wrap; }
+.follow-up-gaps { list-style: none; margin: 0; padding: 0; }
+.follow-up-gaps .follow-up-gap { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s1) var(--s3); padding: var(--s1) 0; }
+.reader-dialog { inline-size: min(32rem, calc(100% - var(--s8))); max-block-size: calc(100dvh - var(--s8)); padding: var(--s4); background: var(--surface); color: var(--ink); border: 1px solid var(--rule); border-radius: var(--radius); overflow: auto; }
+.reader-dialog::backdrop { background: rgba(0, 0, 0, .42); }
+.reader-dialog > p { margin-block: var(--s2); }
+.publish-preview { inline-size: min(42rem, calc(100% - var(--s8))); overflow-wrap: anywhere; }
+.publish-preview h3, .publish-preview #publish-confirm { margin-block-start: var(--s4); }
+.publish-preview summary { min-block-size: var(--target); align-content: center; cursor: pointer; }
+.chart-share-result:not([hidden]) { display: grid; gap: var(--s2); }
+.chart-share-result input { inline-size: 100%; min-inline-size: 0; }
+.chart-share-result button { justify-self: start; }
 .record-note { white-space: pre-wrap; }
 .alternate-names { margin: var(--s1) 0 0; padding-inline-start: var(--s6); }
 .event-list, .relative-list, .citation-list { list-style: none; padding: 0; margin: 0; }
