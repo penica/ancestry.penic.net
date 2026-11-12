@@ -20,6 +20,7 @@ from store import Record
 
 if TYPE_CHECKING:
     import sqlite3
+    from collections.abc import Mapping
 
     from reader_accounts import AccountID, Accounts
 
@@ -39,18 +40,29 @@ class SMTPSettings(Record):
     port: Annotated[int, Field(ge=1, le=65535)]
     security: Literal["starttls", "tls"]
     username: str = ""
+    saved_username: str = ""
     sender: str
 
     @classmethod
-    def parse(
-        cls, host: str, port: str, security: str, username: str, sender: str
-    ) -> SMTPSettings:
+    def parse(cls, form: Mapping[str, str]) -> SMTPSettings:
         """Validate the settings submitted by the administrator."""
-        host, username = host.strip().lower(), username.strip()
+        host = form.get("host", "").strip().lower()
+        username = form.get("username", "").strip()
+        authentication = form.get("authentication")
+        match authentication:
+            case "enabled":
+                authenticate = True
+            case "disabled":
+                authenticate = False
+            case None:
+                authenticate = bool(username)
+            case _:
+                raise MailError("Choose whether to use SMTP authentication.")
         if not HOST.fullmatch(host) or not valid_host(host):
             raise MailError("Enter an SMTP hostname or IP address.")
-        if (
-            len(username) > 254
+        if authenticate and (
+            not username
+            or len(username) > 254
             or not username.isascii()
             or any(ord(character) < 32 for character in username)
         ):
@@ -59,10 +71,11 @@ class SMTPSettings(Record):
             return cls.model_validate(
                 {
                     "host": host,
-                    "port": port,
-                    "security": security,
-                    "username": username,
-                    "sender": mail_address(sender),
+                    "port": form.get("port", ""),
+                    "security": form.get("security", ""),
+                    "username": username if authenticate else "",
+                    "saved_username": "" if authenticate else username,
+                    "sender": mail_address(form.get("sender", "")),
                 }
             )
         except ValidationError as error:
@@ -70,7 +83,12 @@ class SMTPSettings(Record):
 
     def authentication_target(self) -> tuple[str, int, str, str]:
         """Identify the server and account permitted to reuse a saved password."""
-        return self.host, self.port, self.security, self.username
+        return self.host, self.port, self.security, self.username or self.saved_username
+
+    @property
+    def uses_authentication(self) -> bool:
+        """Use a login only when the active username is set."""
+        return bool(self.username)
 
 
 def valid_host(host: str) -> bool:
@@ -94,6 +112,34 @@ def settings_row(db: sqlite3.Connection) -> sqlite3.Row | None:
     return db.execute(
         "SELECT configuration, password FROM reader_mail_settings WHERE id = 1"
     ).fetchone()
+
+
+def stored_password(settings: SMTPSettings, saved: sqlite3.Row | None) -> bytes | None:
+    """Return a stored credential only for its original connection and username."""
+    if saved is not None and saved["password"] is not None:
+        previous = SMTPSettings.model_validate_json(saved["configuration"])
+        if previous.authentication_target() == settings.authentication_target():
+            return saved["password"]
+    return None
+
+
+def smtp_password(
+    settings: SMTPSettings, submitted: str, saved: sqlite3.Row | None
+) -> str | bytes | None:
+    """Select a submitted password or the encrypted password for the same account."""
+    if not settings.uses_authentication:
+        return None
+    if submitted:
+        if (
+            len(submitted) > 512
+            or not submitted.isascii()
+            or any(ord(character) < 32 for character in submitted)
+        ):
+            raise MailError("Enter a valid SMTP password.")
+        return submitted
+    if credential := stored_password(settings, saved):
+        return credential
+    raise MailError("Enter the SMTP password for this server and username.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,30 +178,21 @@ class Mail:
 
     def save(self, actor: AccountID, settings: SMTPSettings, password: str) -> None:
         """Replace SMTP settings while preserving credentials only for the same server."""
-        if (
-            len(password) > 512
-            or not password.isascii()
-            or any(ord(character) < 32 for character in password)
-        ):
-            raise MailError("Enter a valid SMTP password.")
-        if password and not settings.username:
-            raise MailError("Enter an SMTP username when saving a password.")
         with self.accounts._connect(write=True) as db:
             _require_admin(db, actor)
-            existing = settings_row(db)
-            secret = None
-            if password:
-                secret = self.cipher_password(password)
-            elif (
-                settings.username
-                and existing is not None
-                and existing["password"] is not None
-            ):
-                previous = SMTPSettings.model_validate_json(existing["configuration"])
-                if previous.authentication_target() == settings.authentication_target():
-                    secret = existing["password"]
-            if settings.username and secret is None:
-                raise MailError("Enter the SMTP password for this server and username.")
+            saved = settings_row(db)
+            credential = (
+                smtp_password(settings, password, saved)
+                if settings.uses_authentication
+                else stored_password(settings, saved)
+            )
+            if credential is None:
+                settings = settings.model_copy(update={"saved_username": ""})
+            match credential:
+                case str(plain):
+                    secret = self.cipher_password(plain)
+                case bytes() | None:
+                    secret = credential
             db.execute(
                 """INSERT INTO reader_mail_settings VALUES (1, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET configuration = excluded.configuration,
@@ -163,18 +200,32 @@ class Mail:
                 (settings.model_dump_json(), secret),
             )
 
-    def send(self, actor: AccountID, recipient: str, subject: str, text: str) -> None:
-        """Send a single email over verified TLS with a bounded connection timeout."""
+    def send(
+        self,
+        actor: AccountID,
+        recipient: str,
+        subject: str,
+        text: str,
+        *,
+        draft: SMTPSettings | None = None,
+        password: str = "",
+    ) -> None:
+        """Send one email over verified TLS using saved settings or a test draft."""
         recipient = mail_address(recipient)
         with self.accounts._connect() as db:
             _require_admin(db, actor)
             row = settings_row(db)
-        if row is None:
-            raise MailError("Configure the email server first.")
-        settings = SMTPSettings.model_validate_json(row["configuration"])
-        password = (
-            self.open_password(row["password"]) if row["password"] is not None else ""
-        )
+        if draft is None:
+            if row is None:
+                raise MailError("Configure the email server first.")
+            draft = SMTPSettings.model_validate_json(row["configuration"])
+        settings = draft
+        credential = smtp_password(settings, password, row)
+        match credential:
+            case bytes(secret):
+                plain = self.open_password(secret)
+            case str() | None:
+                plain = credential
         message = EmailMessage()
         message["From"] = settings.sender
         message["To"] = recipient
@@ -194,9 +245,15 @@ class Mail:
             with smtp:
                 if settings.security == "starttls":
                     smtp.starttls(context=context)
-                if settings.username:
-                    smtp.login(settings.username, password)
+                if plain is not None:
+                    smtp.login(settings.username, plain)
                 smtp.send_message(message)
+        except smtplib.SMTPAuthenticationError as error:
+            raise MailError("The mail server rejected the SMTP credentials.") from error
+        except ssl.SSLCertVerificationError as error:
+            raise MailError(
+                "The mail server’s TLS certificate could not be verified."
+            ) from error
         except (OSError, smtplib.SMTPException) as error:
             raise MailError(
                 "The email could not be delivered. Check the email server settings."

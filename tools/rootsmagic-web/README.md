@@ -12,7 +12,7 @@ Under **Account settings → Two-step verification**, enter your current passwor
 
 On your hosted reader’s canonical HTTPS origin, choose **Account settings → Passkeys** to register a device, password manager, or security key. Confirm your password and, when enabled, enter an authenticator or recovery code. Then use **Sign in with a passkey**. The LAN address supports password sign-in and the existing two-step verification.
 
-Administrators can configure SMTP and send a test message in **Account → System settings → Email server**. Once configured, **Manage accounts** accepts an optional recipient when creating an invitation and displays the one-time link for copying.
+Administrators can configure SMTP in **Account → System settings → Email server**. Set **SMTP authentication** to **Disabled** for a relay that accepts mail without a login. Use **Send test email** to check the settings before saving. Once configured, **Manage accounts** accepts an optional recipient when creating an invitation and displays the one-time link for copying.
 
 Use **System settings → Trees and chart** to choose the default tree, starting person, ancestry depth, and which relatives appear initially. Saved defaults apply to new chart views. On the Mac, **System settings → Local files** sets the preferred `.rmtree` file, the folder to scan, and whether to show **Publish** for the configured publishing file. The Mac and VM save their settings separately from the tree.
 

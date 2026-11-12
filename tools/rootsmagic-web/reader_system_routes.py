@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -17,6 +17,20 @@ from reader_mail import Mail, SMTPSettings
 if TYPE_CHECKING:
     from jinja2 import Environment
 
+SMTP_FIELDS: Final = (
+    "host",
+    "port",
+    "security",
+    "sender",
+    "authentication",
+    "username",
+)
+
+
+def visible_mail_fields(form: dict[str, str]) -> dict[str, str]:
+    """Keep the submitted settings available in the form after a test or error."""
+    return {name: form[name] for name in SMTP_FIELDS if name in form}
+
 
 def system_router(access: ReaderAccess, templates: Environment) -> APIRouter:
     """Register the settings index and SMTP module."""
@@ -24,7 +38,13 @@ def system_router(access: ReaderAccess, templates: Environment) -> APIRouter:
     router.include_router(configuration_router(access, templates))
 
     async def email_page(
-        request: Request, *, error: str = "", notice: str = ""
+        request: Request,
+        *,
+        error: str = "",
+        notice: str = "",
+        draft: dict[str, str] | None = None,
+        recipient: str | None = None,
+        reenter_password: bool = False,
     ) -> HTMLResponse:
         session = require_admin(request)
         settings, password_saved = await run_in_threadpool(
@@ -37,6 +57,11 @@ def system_router(access: ReaderAccess, templates: Environment) -> APIRouter:
                 system_section="email",
                 settings=settings,
                 password_saved=password_saved,
+                draft=draft,
+                recipient=(session.account.email or "")
+                if recipient is None
+                else recipient,
+                reenter_password=reenter_password,
                 error=error,
                 notice=notice,
             ),
@@ -66,19 +91,21 @@ def system_router(access: ReaderAccess, templates: Environment) -> APIRouter:
     async def save_email(request: Request) -> Response:
         form = await admin_form(request)
         actor = require_admin(request).account.id
+        fields = visible_mail_fields(form)
+        password = form.get("password", "")
         try:
-            settings = SMTPSettings.parse(
-                form.get("host", ""),
-                form.get("port", ""),
-                form.get("security", ""),
-                form.get("username", ""),
-                form.get("sender", ""),
-            )
+            settings = SMTPSettings.parse(fields)
             await run_in_threadpool(
-                Mail(access.store()).save, actor, settings, form.get("password", "")
+                Mail(access.store()).save, actor, settings, password
             )
         except AccountsError as error:
-            return await email_page(request, error=str(error))
+            return await email_page(
+                request,
+                error=str(error),
+                draft=fields,
+                recipient=form.get("recipient"),
+                reenter_password=bool(password),
+            )
         audit("mail_settings_changed", "ok", actor=actor)
         return RedirectResponse("/system/email?saved=true", status_code=303)
 
@@ -86,20 +113,37 @@ def system_router(access: ReaderAccess, templates: Environment) -> APIRouter:
     async def test_email(request: Request) -> HTMLResponse:
         form = await admin_form(request)
         actor = require_admin(request).account.id
+        fields = visible_mail_fields(form)
+        recipient = form.get("recipient", "")
+        password = form.get("password", "")
         try:
+            # The earlier test form submitted only a recipient and used saved settings.
+            draft = SMTPSettings.parse(fields) if fields else None
             await run_in_threadpool(
                 Mail(access.store()).send,
                 actor,
-                form.get("recipient", ""),
+                recipient,
                 "RootsMagic Reader test email",
                 "This test email was requested in RootsMagic Reader's System settings.",
+                draft=draft,
+                password=password if draft else "",
             )
         except AccountsError as error:
             audit("test_mail", "failed", actor=actor)
-            return await email_page(request, error=str(error))
+            return await email_page(
+                request,
+                error=str(error),
+                draft=fields or None,
+                recipient=recipient,
+                reenter_password=bool(password),
+            )
         audit("test_mail", "ok", actor=actor)
         return await email_page(
-            request, notice="Test email accepted by the mail server."
+            request,
+            notice="Test email accepted by the mail server.",
+            draft=fields or None,
+            recipient=recipient,
+            reenter_password=bool(password),
         )
 
     return router

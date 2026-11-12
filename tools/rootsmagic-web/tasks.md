@@ -25,6 +25,7 @@ Check off a step when its behavior has been verified. **P1** covers the current 
   - [x] Give each settings section its own page under a shared System settings layout so new sections can be added later.
   - [x] Move **Manage accounts** into System settings and preserve existing account management and invitation links.
   - [x] Add **Email server** for SMTP connection and sender settings. Protect stored credentials and let an Administrator send a test email.
+  - [x] Let Administrators test SMTP settings before saving and choose whether the mail server requires authentication.
   - [x] Let Administrators email invitations from **Manage accounts** when mail is configured. Keep the copyable one-time link available.
   - [x] Verify that Administrators can use both sections, Readers are denied direct access, and mail delivery failures leave the invitation link usable.
 - [x] **Sign in with a passkey**
