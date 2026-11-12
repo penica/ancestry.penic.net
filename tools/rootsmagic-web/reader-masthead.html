@@ -3,7 +3,12 @@
     {% set my_person = reader_session.account.person_for(tree.slug) if reader_session and tree else none %}
     <a class="brand reader-identity" href="{{ tree.url('/pedigree') if tree else '/pedigree' }}">
       <span>RootsMagic Reader</span>
-      {% if tree and trees|length <= 1 %}<span class="reader-tree-name">{{ tree.name }}</span>{% endif %}
+      {% if tree and (trees|length <= 1 or person_count is defined) %}
+      <span class="reader-tree-name">
+        {% if trees|length <= 1 %}{{ tree.name }}{% if person_count is defined %} · {% endif %}{% endif %}
+        {% if person_count is defined %}<span class="reader-tree-count" id="reader-tree-count" aria-live="polite">{{ '{:,}'.format(person_count) }} {{ 'person' if person_count == 1 else 'people' }}{% if tree.external %} visible{% endif %}</span>{% endif %}
+      </span>
+      {% endif %}
     </a>
     {% if tree %}
     <div class="reader-links">

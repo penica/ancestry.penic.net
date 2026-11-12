@@ -14,6 +14,8 @@ const summary = document.querySelector("#pedigree-summary");
 const childrenLinks = document.querySelector("#pedigree-children");
 const previousLink = document.querySelector("#pedigree-previous");
 const treeStatus = document.querySelector("#pedigree-status");
+const treeCount = document.querySelector("#reader-tree-count");
+const countFormat = new Intl.NumberFormat("en");
 const shareButton = document.querySelector("#pedigree-share");
 const searchForm = document.querySelector("#pedigree-search");
 const query = document.querySelector("#pedigree-query");
@@ -53,6 +55,7 @@ const branchExpansions = new Map();
 const collapsedPartners = new Set();
 
 let treeRequest;
+let countRequest;
 let searchRequest;
 let detailsRequest;
 let detailsRefresh;
@@ -1267,6 +1270,18 @@ async function openDetails(person = selectedPerson, opener = detailsButton, refr
 detailsButton.addEventListener("click", () => void openDetails());
 function refreshTree() {
   const position = { scrollLeft: viewport.scrollLeft, scrollTop: viewport.scrollTop };
+  countRequest?.abort();
+  const request = new AbortController();
+  countRequest = request;
+  void getJSON(`${API}/person-count`, request.signal).then((total) => {
+    if (request.signal.aborted) return;
+    const label = total === 1 ? "person" : "people";
+    const scope = EXTERNAL_READER ? " visible" : "";
+    const text = `${countFormat.format(total)} ${label}${scope}`;
+    if (treeCount.textContent !== text) treeCount.textContent = text;
+  }).catch(() => {
+    // Keep the last count until a refresh succeeds.
+  });
   return loadTree(currentPerson(), false, position, true);
 }
 

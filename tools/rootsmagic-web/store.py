@@ -352,6 +352,11 @@ def search(path: DatabasePath, query: str, limit: int, offset: int) -> Directory
     )
 
 
+def count_people(db: sqlite3.Connection) -> int:
+    """Count records in the current reader's view of the tree."""
+    return int(db.execute("SELECT count(*) FROM PersonTable").fetchone()[0])
+
+
 def pedigree_search(
     path: DatabasePath,
     query: str,

@@ -40,6 +40,7 @@
   overflow-wrap: anywhere;
 }
 .reader-tree-name { margin-block-start: var(--s1); color: var(--muted); font: .875rem/1.35 system-ui, sans-serif; }
+.reader-tree-count { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .reader-links { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); }
 .reader-links a { display: inline-flex; align-items: center; min-block-size: var(--target); font-weight: 600; text-decoration: none; }
 .reader-my-person { padding-inline: var(--s2); border: 1px solid var(--rule); border-radius: var(--radius); background: var(--wash); }

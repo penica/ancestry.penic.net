@@ -96,6 +96,7 @@ from store import (
     Profile,
     Record,
     connect,
+    count_people,
     pedigree_search,
     person_names,
     profile,
@@ -425,6 +426,13 @@ def api_pedigree_people(
     return pedigree_search(tree.database, query, limit, offset)
 
 
+@app.get("/api/v1/pedigree/person-count", tags=["Pedigree"])
+def api_pedigree_person_count(tree: SelectedTree) -> int:
+    """Count people in the selected tree using the current account's access."""
+    with connect(tree.database) as db:
+        return count_people(db)
+
+
 @app.get("/api/v1/pedigree/{person_id}", tags=["Pedigree"])
 def api_pedigree(
     person_id: RecordID,
@@ -451,13 +459,15 @@ def render_pedigree(
     shared: ChartLink | None = None,
     shared_changed: bool = False,
 ) -> HTMLResponse:
+    starting_person, person_count = tree.starting_person_and_count()
     return HTMLResponse(
         templates.get_template("pedigree.html").render(
             tree=tree,
             trees=reader_access.visible_trees(request),
             reader_session=current_session(request),
             local_system=reader_access.local_browser(request),
-            starting_person=tree.starting_person() or 0,
+            starting_person=starting_person or 0,
+            person_count=person_count,
             chart_settings=site_settings().chart,
             shared_person=shared.person_id if shared else None,
             shared_view=shared.view.model_dump_json(by_alias=True) if shared else None,

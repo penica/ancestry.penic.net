@@ -14,7 +14,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from reader_external import DatabasePath, ExternalTree
 from reader_settings import SiteSettings, site_settings
-from store import NAME, PersonID, connect
+from store import NAME, PersonID, connect, count_people
 
 HERE: Final = Path(__file__).resolve().parent
 LIVE: Final = HERE.parents[1] / "family-tree.rmtree"
@@ -49,14 +49,14 @@ class Tree:
         query["tree"] = self.slug
         return urlunsplit(parts._replace(query=urlencode(query)))
 
-    def starting_person(self) -> PersonID | None:
-        """Find the configured starting person or the first recorded name."""
+    def starting_person_and_count(self) -> tuple[PersonID | None, int]:
+        """Read the default person and total from the same tree snapshot."""
         with connect(self.database) as db:
             row = db.execute(
                 f"SELECT id FROM ({NAME}) ORDER BY id = ? DESC, id LIMIT 1",  # noqa: S608
                 (self.preferred_person,),
             ).fetchone()
-            return PersonID(row["id"]) if row else None
+            return (PersonID(row["id"]) if row else None), count_people(db)
 
 
 def same_file(left: Path, right: Path) -> bool:
