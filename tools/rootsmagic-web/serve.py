@@ -64,6 +64,7 @@ from pedigree_store import (
 )
 from reader_access import ReaderAccess, current_session, read_json, require_family_tree
 from reader_account_routes import account_router
+from reader_api_key_routes import integration_router
 from reader_chart_links import (
     TOKEN_PATTERN,
     ChartLink,
@@ -285,6 +286,8 @@ comment_store = Comments(tree_state)
 follow_up_store = FollowUps(tree_state)
 chart_links = ChartLinks(tree_state)
 app.include_router(account_router(reader_access, templates))
+if reader_access.accounts is not None:
+    app.include_router(integration_router(reader_access))
 app.include_router(follow_up_router(reader_access, follow_up_store, templates))
 
 

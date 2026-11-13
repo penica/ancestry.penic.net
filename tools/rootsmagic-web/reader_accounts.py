@@ -74,6 +74,7 @@ REQUIRED_TABLES: Final = frozenset(
         "reader_mfa_challenges",
         "reader_mfa_recovery",
         "reader_mail_settings",
+        "reader_api_keys",
         "reader_passkey_users",
         "reader_passkeys",
         "reader_passkey_challenges",
@@ -84,6 +85,17 @@ CREATE TABLE IF NOT EXISTS reader_mail_settings (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     configuration TEXT NOT NULL, password BLOB
 );
+CREATE TABLE IF NOT EXISTS reader_api_keys (
+    id INTEGER PRIMARY KEY, label TEXT NOT NULL, tree_slug TEXT NOT NULL,
+    scope TEXT NOT NULL CHECK (scope IN ('deceased', 'family')),
+    token_hash BLOB NOT NULL UNIQUE, prefix TEXT NOT NULL,
+    created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+    lifetime_days INTEGER NOT NULL CHECK (lifetime_days IN (30, 90, 365)),
+    last_used_at INTEGER, revoked_at INTEGER,
+    version INTEGER NOT NULL DEFAULT 1
+);
+CREATE UNIQUE INDEX IF NOT EXISTS reader_api_keys_active_label
+    ON reader_api_keys(label COLLATE NOCASE) WHERE revoked_at IS NULL;
 CREATE TABLE IF NOT EXISTS reader_accounts (
     id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE,
     salt BLOB NOT NULL, password_hash BLOB NOT NULL,

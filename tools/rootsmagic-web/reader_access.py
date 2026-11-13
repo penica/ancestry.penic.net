@@ -16,6 +16,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse, PlainTextResponse, RedirectResponse
 
 from reader_accounts import Accounts, Role, Session
+from reader_api_keys import LOOKUP_PATH
 from tree_catalog import Tree, available_trees
 
 if TYPE_CHECKING:
@@ -152,6 +153,9 @@ class ReaderAccess:
     async def guard(self, request: Request) -> Response | None:
         """Authenticate before the application can read protected tree data."""
         if self.accounts is None or request.url.path in PUBLIC_PATHS:
+            return None
+        if request.method == "GET" and request.url.path == LOOKUP_PATH:
+            # The integration route authenticates the key and checks its tree grant.
             return None
         api = request.url.path.startswith("/api/")
         try:

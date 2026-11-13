@@ -73,6 +73,14 @@ Layout: selected-person details - preserve chart position beneath a native modal
 - Enforce family access at the evidence, direct media, comments, research, and follow-up endpoints. Hide those controls, Notes, and the tree's **My person** shortcut in the external view. If a preferred starting person is hidden, start with the first visible person.
 - Rebuild external PDF cards, facts, and family edges from the projection. The submitted outline selects branches to print. Scope shared links to the recipient's tree access and remove hidden branch IDs before rendering. Compare external change notices against the public record revision when available.
 
+## API keys
+
+Layout: API key settings - reuse the system navigation and administrator form and list layout. Put the one-time secret above the form after creation or rotation. Stack the form and key list on phone widths. Each key row expands to show its tree, access, expiry, last use, and management actions.
+
+- Check administrator access and form CSRF for each management action. Keep key hashes, metadata and timestamps in the account database. Audit creation, renaming, rotation and revocation by internal ID. Reveal the secret only in the issue or rotation response.
+- Only the registry lookup accepts a bearer key. Resolve the assigned tree from that key and use the External Reader projection for public deceased access. Return the fields needed to distinguish and link people. Full records and browser links still require a session with tree access.
+- Verify key creation, rename, rotation, expiry, revocation, rate limits and concurrent stale form submissions. Check both access scopes, attempts to use the key for another tree or route, and an HTTPS request from a client without a reader session.
+
 ## Browser checks before shipping
 
 - Test a desktop and a phone width in light and dark mode. Verify the chart is the scrolling region, generation controls fit, and the fixed panel header leaves room to scroll the details.

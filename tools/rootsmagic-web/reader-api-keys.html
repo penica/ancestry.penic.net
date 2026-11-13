@@ -1,0 +1,120 @@
+{% extends "reader-system.html" %}
+{% macro action_fields(key=none) -%}
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+{% if key %}<input type="hidden" name="version" value="{{ key.version }}">{% endif %}
+{%- endmacro %}
+{% block title %}API keys{% endblock %}
+{% block system_content %}
+{% if issued %}
+<section class="account-message account-invitation-link" aria-labelledby="issued-key-title">
+  <h2 id="issued-key-title">API key for {{ issued.info.label }}</h2>
+  <label for="issued-key">Copy this key into the calling server’s secret settings. It is shown here once.</label>
+  <input id="issued-key" value="{{ issued.secret }}" readonly spellcheck="false" autocomplete="off" autocapitalize="none">
+</section>
+{% endif %}
+<section aria-labelledby="api-key-title">
+  <h2 id="api-key-title">API keys</h2>
+  <p>Each key can look up people in one published tree. Use it from the registry server to find people and link to their records.</p>
+</section>
+<div class="account-admin-layout smtp-layout">
+  <section aria-labelledby="create-api-key-title">
+    <h2 id="create-api-key-title">Create a key</h2>
+    {% if trees %}
+    <form class="account-form" method="post" action="/system/api-keys">
+      {{ action_fields() }}
+      <div class="account-field">
+        <label for="key-label">Name</label>
+        <input id="key-label" name="label" placeholder="Parish registers" maxlength="80" required>
+      </div>
+      <div class="account-field">
+        <label for="key-tree">Tree</label>
+        <select id="key-tree" name="tree_slug" required>
+          <option value="" selected disabled>Choose a tree</option>
+          {% for slug, name in trees.items() %}<option value="{{ slug }}">{{ name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="account-field">
+        <label for="key-scope">Person access</label>
+        <select id="key-scope" name="scope" aria-describedby="key-scope-help">
+          <option value="deceased">Public deceased people</option>
+          <option value="family">All people in this tree</option>
+        </select>
+        <p class="muted" id="key-scope-help">All people includes living and private records in lookup results.</p>
+      </div>
+      <div class="account-field">
+        <label for="key-lifetime">Expires after</label>
+        <select id="key-lifetime" name="lifetime_days">
+          <option value="30">30 days</option>
+          <option value="90" selected>90 days</option>
+          <option value="365">365 days</option>
+        </select>
+      </div>
+      <button type="submit">Create API key</button>
+    </form>
+    {% else %}
+    <p>Publish a tree to create a key.</p>
+    {% endif %}
+    <details class="account-role-help">
+      <summary>Use an API key</summary>
+      <p class="muted">Send <code>Authorization: Bearer &lt;key&gt;</code> with a GET request to <a href="{{ origin }}{{ lookup_path }}">{{ lookup_path }}</a>. Set <code>q</code> to a name or RootsMagic ID. Keep the key on the calling server.</p>
+      <p><a href="/openapi.json">API schema</a></p>
+    </details>
+  </section>
+  <section aria-labelledby="existing-api-keys">
+    <h2 id="existing-api-keys">Manage keys</h2>
+    {% if keys %}
+    <ul class="account-list">
+      {% for key in keys %}
+      <li>
+        <details>
+          <summary>
+            <strong>{{ key.label }}</strong>
+            <small> · {{ 'Revoked' if key.revoked_at else 'Expired' if key.expires_at <= now else 'Active' }}</small>
+          </summary>
+          <div class="account-record">
+            <dl class="account-memberships">
+              <div><dt>Key prefix</dt><dd><code>{{ key.prefix }}…</code></dd></div>
+              <div><dt>Tree</dt><dd>{{ trees.get(key.tree_slug, key.tree_slug) }}</dd></div>
+              <div><dt>Person access</dt><dd>{{ 'All people in this tree' if key.scope == 'family' else 'Public deceased people' }}</dd></div>
+              <div><dt>Created</dt><dd>{{ timestamp(key.created_at) }}</dd></div>
+              <div><dt>Expires</dt><dd>{{ timestamp(key.expires_at) }}</dd></div>
+              <div><dt>Last used</dt><dd>{{ timestamp(key.last_used_at) if key.last_used_at else 'Never' }}</dd></div>
+              {% if key.revoked_at %}<div><dt>Revoked</dt><dd>{{ timestamp(key.revoked_at) }}</dd></div>{% endif %}
+            </dl>
+            {% if not key.revoked_at %}
+            <form class="account-form" method="post" action="/system/api-keys/{{ key.id }}/rename">
+              {{ action_fields(key) }}
+              <div class="account-field">
+                <label for="key-name-{{ key.id }}">Name</label>
+                <input id="key-name-{{ key.id }}" name="label" value="{{ key.label }}" maxlength="80" required>
+              </div>
+              <button class="account-secondary" type="submit">Save name</button>
+            </form>
+            <details>
+              <summary>Rotate key</summary>
+              <form class="account-form" method="post" action="/system/api-keys/{{ key.id }}/rotate">
+                {{ action_fields(key) }}
+                <p class="muted">The old key stops working immediately. The new key lasts {{ key.lifetime_days }} days.</p>
+                <button type="submit">Rotate API key</button>
+              </form>
+            </details>
+            <details>
+              <summary>Revoke key</summary>
+              <form class="account-form" method="post" action="/system/api-keys/{{ key.id }}/revoke">
+                {{ action_fields(key) }}
+                <p class="muted">This permanently disables the key.</p>
+                <button type="submit">Revoke API key</button>
+              </form>
+            </details>
+            {% endif %}
+          </div>
+        </details>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">No API keys yet.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

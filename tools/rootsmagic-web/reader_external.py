@@ -31,7 +31,7 @@ CREATE TEMP VIEW FamilyTable AS
     FROM main.FamilyTable WHERE IsPrivate = 0
       AND (FatherID IN reader_public_people OR MotherID IN reader_public_people);
 CREATE TEMP VIEW PersonTable AS
-    SELECT p.PersonID, p.Living, NULL AS Note,
+    SELECT p.PersonID, p.UniqueID, p.Living, NULL AS Note,
            CASE WHEN p.ParentID IN (SELECT FamilyID FROM temp.FamilyTable)
              AND NOT EXISTS (SELECT 1 FROM main.ChildTable c
                              WHERE c.ChildID = p.PersonID AND c.FamilyID = p.ParentID AND c.IsPrivate IS NOT 0)

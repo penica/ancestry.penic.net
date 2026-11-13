@@ -380,6 +380,14 @@ def search_rows(
     offset: int,
 ) -> tuple[tuple[sqlite3.Row, ...], int]:
     """Read a page and its count from one database snapshot."""
+    with connect(path) as db:
+        return read_search_rows(db, query, limit, offset)
+
+
+def read_search_rows(
+    db: sqlite3.Connection, query: str, limit: int, offset: int
+) -> tuple[tuple[sqlite3.Row, ...], int]:
+    """Search within the caller's current snapshot."""
     term = re.sub(r"^#(?=[0-9]+$)", "", query.strip())
     params = {
         "terms": json.dumps(fold(term).split()),
@@ -387,16 +395,15 @@ def search_rows(
         "limit": limit,
         "offset": offset,
     }
-    with connect(path) as db:
-        count_sql = f"SELECT count(*) FROM ({DIRECTORY_FILTER})"  # noqa: S608
-        total_row = next(iter(db.execute(count_sql, params)))
-        rows = tuple(
-            db.execute(
-                f"{DIRECTORY_FILTER} ORDER BY fold(name), id LIMIT :limit OFFSET :offset",
-                params,
-            )
+    count_sql = f"SELECT count(*) FROM ({DIRECTORY_FILTER})"  # noqa: S608
+    total_row = next(iter(db.execute(count_sql, params)))
+    rows = tuple(
+        db.execute(
+            f"{DIRECTORY_FILTER} ORDER BY fold(name), id LIMIT :limit OFFSET :offset",
+            params,
         )
-        return rows, int(total_row[0])
+    )
+    return rows, int(total_row[0])
 
 
 def person_names(

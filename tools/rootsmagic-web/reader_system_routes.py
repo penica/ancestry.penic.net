@@ -11,6 +11,7 @@ from starlette.concurrency import run_in_threadpool
 
 from reader_access import ReaderAccess, admin_form, require_admin
 from reader_accounts import AccountsError
+from reader_api_key_routes import api_key_settings_router
 from reader_audit import audit
 from reader_configuration_routes import configuration_router
 from reader_mail import Mail, SMTPSettings
@@ -37,6 +38,8 @@ def system_router(access: ReaderAccess, templates: Environment) -> APIRouter:
     """Register the settings index and SMTP module."""
     router = APIRouter(include_in_schema=False)
     router.include_router(configuration_router(access, templates))
+    if access.accounts is not None:
+        router.include_router(api_key_settings_router(access, templates))
 
     async def email_page(
         request: Request,

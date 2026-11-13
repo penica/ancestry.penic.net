@@ -18,6 +18,10 @@ AuditEvent = Literal[
     "system_settings_changed",
     "test_mail",
     "invitation_mail",
+    "api_key_created",
+    "api_key_renamed",
+    "api_key_rotated",
+    "api_key_revoked",
 ]
 AuditOutcome = Literal["ok", "denied", "limited", "failed"]
 LOG: Final = logging.getLogger("uvicorn.error")

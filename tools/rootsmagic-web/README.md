@@ -85,6 +85,22 @@ ROOTSMAGIC_DB="/absolute/path/to/your-tree.rmtree" uv run tools/rootsmagic-web/s
 
 After a RootsMagic file conversion, start the reader with `ROOTSMAGIC_DB` pointing to a copy of the converted file. Try a known search, a pedigree with parent and sibling links, and a full record with event dates and citations before switching the reader to that file.
 
+## Registry integration API
+
+On the hosted reader, open **Account → System settings → API keys**. Give the integration a name, choose its published tree and person access, then set its expiry. **Public deceased people** uses the External Reader rules. Choose **All people in this tree** only when the registry is authorized to look up living and private people.
+
+Copy the key when it is created and save it in the registry server's secret settings. Send it in the HTTPS `Authorization: Bearer` header. The API key is shown only when it is issued. **Save name** changes the label, **Rotate key** replaces the secret immediately and renews the selected lifetime, and **Revoke key** disables the credential. To change tree, access, or lifetime, create a replacement and revoke the old key.
+
+```sh
+curl --fail --get "$ROOTSMAGIC_READER_URL/api/v1/integrations/people" \
+  -H "Authorization: Bearer $ROOTSMAGIC_API_KEY" \
+  --data-urlencode 'q=#406'
+```
+
+Set `ROOTSMAGIC_READER_URL` to the hosted reader's HTTPS origin. The lookup accepts names or RootsMagic IDs and returns the selected tree slug, matching names, birth and death years when available, RootsMagic IDs, stable IDs when recorded, and relative person record paths. Pass `limit` (1–30) and `offset` for more results. An optional `tree` must match the key's assigned tree. Save the tree slug, numeric ID, and stable ID with the registry link. Open the returned `record_path` on the reader origin so the viewer can sign in with their own tree access.
+
+The key authorizes only this read-only lookup. Each key allows 120 requests per minute. A missing, invalid, expired, or revoked key returns `401`, a different tree returns `404`, and the rate limit returns `429` with `Retry-After`.
+
 ## Local API
 
 | Endpoint | Result |
