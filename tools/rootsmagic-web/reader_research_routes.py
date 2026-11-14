@@ -12,7 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from reader_access import current_session, read_form
 from reader_comments import comments_token, reader_actor, verify_reader_mutation
 from reader_follow_ups import FollowUpStatus
-from store import PersonID, person_names
+from store import PersonID, matching_people, person_names
 
 if TYPE_CHECKING:
     from jinja2 import Environment
@@ -24,12 +24,13 @@ if TYPE_CHECKING:
 PAGE_SIZE: Final = 30
 PAGE: Final = "/pedigree/follow-ups"
 TreeFilter = Annotated[str, Query(max_length=240)]
-PersonFilter = Annotated[str, Query(max_length=25)]
+PersonFilter = Annotated[str, Query(max_length=160)]
 
 
 def person_filter(query: str) -> PersonID | None:
-    value = query.strip().removeprefix("#")
-    if not value:
+    token = query.strip()
+    value = token.removeprefix("#")
+    if not token.startswith("#") and not (value.isascii() and value.isdigit()):
         return None
     if value.isascii() and value.isdigit() and 0 < int(value) < 2**63:
         return PersonID(int(value))
@@ -66,13 +67,20 @@ def follow_up_router(
                 status_code=403, detail="Follow-ups are available with family access."
             )
         selected = tree_filter(catalog, tree)
+        exact_id = person_filter(person)
+        matches = (
+            {item.slug: matching_people(item.database, person) for item in selected}
+            if person.strip() and exact_id is None
+            else None
+        )
         entries = store.page(
             actor.id,
             tuple(item.slug for item in selected),
-            person_filter(person),
+            exact_id,
             status,
             PAGE_SIZE + 1,
             offset,
+            matches=matches,
         )
         items = entries[:PAGE_SIZE]
         names = {

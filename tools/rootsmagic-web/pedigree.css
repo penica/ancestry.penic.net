@@ -216,6 +216,8 @@ button.reset { cursor: pointer; }
 }
 .stage-surface { position: relative; overflow: clip; min-inline-size: 100%; min-block-size: calc(100% - var(--target)); }
 .stage { position: relative; transform-origin: top left; }
+.stage.vertical-chart .generation { inset-block: auto; inline-size: max-content; line-height: 1.25; }
+.stage.vertical-chart .marriage { z-index: 2; transform: translate(-50%, -50%); text-align: center; }
 .connectors { position: absolute; inset: 0; pointer-events: none; }
 .connectors path { stroke: var(--control); stroke-width: 1.25; fill: none; }
 .connectors .branch-0 { stroke: var(--branch-0); }
@@ -223,6 +225,8 @@ button.reset { cursor: pointer; }
 .connectors .branch-2 { stroke: var(--branch-2); }
 .connectors .branch-3 { stroke: var(--branch-3); }
 .connectors .partner-connector { stroke-dasharray: 4 3; }
+.connectors .family-connector { stroke-width: 1.75; }
+.child-family-marriage { display: block; margin-block-start: var(--s1); font-weight: normal; }
 .person-card {
   position: absolute;
   z-index: 1;
@@ -295,6 +299,7 @@ button.reset { cursor: pointer; }
 }
 .pedigree-tool-group { min-inline-size: 0; border-block-start: 1px solid var(--rule); padding-block-start: var(--s2); }
 .pedigree-tool-group h3 { margin: 0 0 var(--s2); color: var(--muted); font-size: inherit; }
+.phone-tools { display: none; }
 #pedigree-gap-status { margin-block-start: var(--s1); }
 #pedigree-gap-status:empty { display: none; }
 #relationship-target { margin-block-end: var(--s4); }
@@ -436,20 +441,49 @@ button.reset { cursor: pointer; }
 .relative-list a:hover, .relative-list a:active { background: var(--wash); }
 .relative-list a:hover > :first-child { text-decoration: underline; }
 .relative-role { color: var(--muted); font-size: var(--type-small); }
-@media (max-width: 43rem) {
+@media (max-width: 43rem), (max-width: 56rem) and (max-height: 32rem) and (orientation: landscape) {
   :root { --root-position: .28; }
-  .page-header { align-items: stretch; gap: var(--s2); margin-block: var(--s3); }
-  .controls { flex-wrap: wrap; inline-size: 100%; }
-  .search { flex: 1 1 13rem; }
+  main.shell { padding-inline: var(--s2); }
+  body .reader-masthead { padding: var(--s1) var(--s2); }
+  body .reader-masthead .reader-identity { flex-basis: auto; font-size: 1.125rem; }
+  .reader-masthead .reader-links { display: none; }
+  .reader-masthead .reader-tree-name { margin: 0; font-size: .75rem; }
+  .reader-masthead .reader-tree-switch label { position: absolute; clip-path: inset(50%); }
+  .page-header, .chart-fullscreen .page-header { display: block; margin: var(--s1) 0; }
+  .chart-fullscreen .page-header { padding-inline: var(--s2); }
+  .page-header > h1 { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); }
+  .controls { align-items: stretch; inline-size: 100%; gap: var(--s1); }
+  .controls .reset, .search-fields button { padding-inline: var(--s2); }
+  .search { flex: 1 1 auto; }
+  .search-fields { gap: var(--s1); }
   .search-fields input { inline-size: 0; }
+  .search-results { inset-inline-end: auto; inline-size: min(calc(100vw - 2 * var(--s2)), 30rem); max-block-size: min(18rem, 47dvh); }
+  .tree { margin-block-end: var(--s1); }
+  .tree-header, .chart-fullscreen .tree-header { position: relative; gap: var(--s1); padding: var(--s1) var(--s2); }
+  .root-summary { flex: 1 1 100%; }
   .root-title { flex-wrap: nowrap; gap: var(--s2); }
-  .root-title h2 { min-inline-size: 0; }
-  .center-description { display: none; }
-  .chart-view-controls output { min-inline-size: 2.5rem; }
+  .root-title h2 { flex: 1; min-inline-size: 0; font-size: 1.125rem; }
+  .root-summary p, .center-description, .fit-description, .previous-description { display: none; }
+  .tree-header > .chart-navigation { gap: var(--s1); }
+  .chart-view-controls { flex-wrap: nowrap; }
+  .chart-view-controls output { min-inline-size: 2rem; font-size: .75rem; }
   .chart-view-controls .reset { padding-inline: var(--s2); }
+  .pedigree-tool-row { flex: 0 0 auto; }
+  .pedigree-tool-panel summary { padding-inline: var(--s2); }
+  .pedigree-tools { position: absolute; z-index: 3; inset: 100% 0 auto; max-block-size: min(58dvh, 26rem); overflow: auto; padding: var(--s3); border: 1px solid var(--control); background: var(--surface); }
+  .phone-tools { display: block; }
   #pedigree-hint { display: none; }
+  .viewport { touch-action: pan-x pan-y pinch-zoom; }
   .person-details { inline-size: 100%; border: 0; }
   .details-header, .details-scroll { padding: var(--s4); }
   .details-sections { column-gap: var(--s1); }
   .details-sections a { padding-inline: var(--s1); }
+}
+@media (max-width: 24rem) {
+  .chart-view-controls output { min-inline-size: 1.75rem; }
+  .tree-header > .chart-navigation { column-gap: 2px; }
+}
+@media (max-width: 56rem) and (max-height: 32rem) and (orientation: landscape) {
+  .root-summary { flex: 0 1 auto; }
+  .reader-masthead .reader-tree-switch { inline-size: min(45%, 22rem); }
 }

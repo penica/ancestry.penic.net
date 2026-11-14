@@ -132,6 +132,7 @@ class ChildFamily(Record):
     id: FamilyID
     partner: PersonCard | None
     children: tuple[PersonCard, ...]
+    marriage: Fact | None = None
 
 
 class Pedigree(Record):
@@ -461,11 +462,15 @@ def read_pedigree(
         )
         if children:
             partner_id = links[0]["partner_id"] or 0
+            partner = card(PersonID(partner_id)) if partner_id > 0 else None
             child_families.append(
                 ChildFamily(
                     id=FamilyID(family_id),
-                    partner=card(PersonID(partner_id)) if partner_id > 0 else None,
+                    partner=partner,
                     children=children,
+                    marriage=facts(db, 1, FamilyID(family_id)).marriage
+                    if partner
+                    else None,
                 )
             )
     children_by_id = {

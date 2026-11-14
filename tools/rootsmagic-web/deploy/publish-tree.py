@@ -13,7 +13,7 @@ import sqlite3
 import subprocess
 import sys
 import unicodedata
-from contextlib import closing, nullcontext
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
@@ -35,7 +35,21 @@ from publish_preview import (
     PublishPreview,
     TargetPreview,
     index_snapshot,
+    person_identities,
+    potential_link_changes,
     preview_publication,
+)
+from publication_history import (
+    Publication,
+    activate,
+    archive,
+    journal,
+    prepare_media,
+    recover,
+    retained_media,
+    sync_directory,
+    tree_blob,
+    verify_versions,
 )
 
 if TYPE_CHECKING:
@@ -43,9 +57,9 @@ if TYPE_CHECKING:
 
     from publish_media import LocalMedia, StagedMedia
 
-SERVER: Final = os.environ.get("ROOTSMAGIC_PUBLISH_SERVER", "")
+SERVER: Final = "penica@ancestry.penic.net"
 PRODUCTION: Final = Path("/srv/rootsmagic-reader")
-PROJECTS: Final = Path.home() / "Projects"
+PROJECTS: Final = Path.home() / "Projects-Private"
 SSH_TIMEOUT: Final = 540
 TABLES: Final = frozenset(
     {"PersonTable", "NameTable", "EventTable", "FamilyTable", "ChildTable"}
@@ -67,6 +81,7 @@ class PublishResult(TypedDict):
     copied: int
     replaced: int
     reused: int
+    publication: str | None
 
 
 def tree_filename(name: str) -> str:
@@ -124,13 +139,31 @@ def make_snapshot(source: Path, snapshot: Path) -> None:
     verify_snapshot(snapshot)
 
 
-def sync_directory(path: Path) -> None:
-    """Flush a published filename or its backup link to disk."""
-    directory = os.open(path, os.O_DIRECTORY)
-    try:
-        os.fsync(directory)
-    finally:
-        os.close(directory)
+def validate_reader(root: Path, snapshot: Path) -> None:
+    """Run the active version of the Reader in its own installed environment."""
+    current = root / "current"
+    validator = current / "deploy" / "validate_snapshot.py"
+    if not validator.is_file():
+        raise PublishError(
+            "Update the VM Reader before publishing so it can check the staged tree."
+        )
+    result = subprocess.run(
+        [
+            str(current / ".venv" / "bin" / "python"),
+            "-I",
+            str(validator),
+            str(snapshot),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    if result.returncode:
+        raise PublishError(
+            result.stderr.strip()[-500:]
+            or "The staged tree failed the reader compatibility check."
+        )
 
 
 def current_checksum(destination: Path) -> str | None:
@@ -159,6 +192,38 @@ def publication_directories(root: Path) -> tuple[Path, Path, Path]:
     return trees, incoming, backups
 
 
+def staging_validation(root: Path, name: str, expected: str) -> None:
+    """Validate a preview snapshot without publishing it or writing to its database."""
+    _, incoming, _ = publication_directories(root)
+    tree_filename(name)
+    with NamedTemporaryFile(prefix="validation-", dir=incoming) as file:
+        shutil.copyfileobj(sys.stdin.buffer, file)
+        file.flush()
+        staged = Path(file.name)
+        if digest(staged) != expected:
+            raise PublishError("The preview snapshot checksum does not match.")
+        verify_snapshot(staged)
+        validate_reader(root, staged)
+
+
+def known_identities(root: Path, name: str, destination: Path) -> dict[str, str | None]:
+    """Keep deleted IDs reserved while their publication history is retained."""
+    known: dict[str, str | None] = {}
+    versions: set[str] = set()
+    for path in sorted((root / "backups" / "publications").glob("*.json")):
+        entry: Publication = json.loads(path.read_text())
+        if entry["name"] != name:
+            continue
+        versions.update(
+            version for version in (entry["before"], entry["after"]) if version
+        )
+    for version in versions:
+        known.update(person_identities(tree_blob(root, version)))
+    if destination.is_file():
+        known.update(person_identities(destination))
+    return known
+
+
 def inspect_target(
     root: Path,
     name: str,
@@ -172,11 +237,14 @@ def inspect_target(
     trees, incoming, _ = publication_directories(root)
     destination = trees / tree_filename(name)
     with (incoming / ".publish.lock").open("ab") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_SH)
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        recover(root)
         checksum = current_checksum(destination)
         records = (
             index_snapshot(destination) if checksum and checksum != expected else {}
         )
+        identities = known_identities(root, name, destination) if records else {}
+        links = potential_link_changes(root, name) if records else {}
     unavailable: list[str] = []
     cache = (
         PreviewChecksums(incoming / ".preview-media-checksums.json")
@@ -195,6 +263,8 @@ def inspect_target(
         "records": records,
         "changes": changes,
         "unavailable": unavailable,
+        "identities": identities,
+        "links": links,
     }
 
 
@@ -220,10 +290,12 @@ def receive_snapshot(
                 message = "The received file does not match the snapshot checksum."
                 raise PublishError(message)
             verify_snapshot(staged)
+            validate_reader(root, staged)
             staged.chmod(0o400)
 
             with (incoming / ".publish.lock").open("ab") as lock:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+                recover(root)
                 current = current_checksum(destination)
                 if previous_checksum is not None and previous_checksum != (
                     current or "-"
@@ -232,18 +304,50 @@ def receive_snapshot(
                         "The published tree changed. Open a new preview."
                     )
                 already_published = current == expected
-                backup = None
                 if current is not None and not already_published:
-                    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
-                    previous = backups / f"{stamp}--{name}"
-                    os.link(destination, previous)
+                    previous = known_identities(root, name, destination)
+                    staged_identities = person_identities(staged)
+                    reused = [
+                        key
+                        for key in previous.keys() & staged_identities.keys()
+                        if previous[key] != staged_identities[key]
+                    ]
+                    if reused:
+                        raise PublishError(
+                            "Publishing would reassign RootsMagic IDs. Review these IDs in the working tree: "
+                            + ", ".join(
+                                f"#{key}" for key in sorted(reused, key=int)[:20]
+                            )
+                        )
+                publication = None
+                backup = None
+                versions = prepare_media(media) if media is not None else []
+                if versions or not already_published:
+                    publication = publication_stamp()
+                    archive(staged, tree_blob(root, expected), expected)
+                    if current is not None:
+                        archived = tree_blob(root, current)
+                        archive(destination, archived, current)
+                        if not already_published:
+                            previous = backups / f"{publication}--{name}"
+                            os.link(archived, previous)
+                            backup = previous.name
                     sync_directory(backups)
-                    backup = previous.name
-                with media.install() if media is not None else nullcontext():
-                    if not already_published:
-                        staged.replace(destination)
-                if not already_published:
-                    sync_directory(trees)
+                    activate(
+                        root,
+                        {
+                            "id": publication,
+                            "name": name,
+                            "before": current,
+                            "after": expected,
+                            "nas": str(media.root.resolve()) if media else None,
+                            "media": versions,
+                            "retained": retained_media(media)
+                            if media is not None
+                            else {},
+                            "rollback_of": None,
+                        },
+                    )
                 changes = media.changes if media is not None else ()
                 return {
                     "status": "published"
@@ -256,9 +360,68 @@ def receive_snapshot(
                     "reused": len(media.checks) - len(changes)
                     if media is not None
                     else 0,
+                    "publication": publication,
                 }
         finally:
             staged.unlink(missing_ok=True)
+
+
+def publication_stamp() -> str:
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
+
+
+def rollback_publication(
+    root: Path, name: str, approved: str | None
+) -> dict[str, object]:
+    """Preview or reverse the latest recorded operation under the publisher lock."""
+    trees, incoming, backups = publication_directories(root)
+    name = tree_filename(name)
+    with (incoming / ".publish.lock").open("ab") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        recover(root)
+        history = sorted((backups / "publications").glob("*.json"), reverse=True)
+        if not history:
+            raise PublishError("There is no publication history yet.")
+        last: Publication = json.loads(history[0].read_text())
+        if last["name"] != name or last["before"] is None:
+            raise PublishError(
+                "The latest publication has no earlier snapshot for this tree."
+            )
+        current_checksum(trees / name)
+        rollback: Publication = {
+            "id": publication_stamp(),
+            "name": name,
+            "before": last["after"],
+            "after": last["before"],
+            "nas": last["nas"],
+            "media": [
+                {"path": row["path"], "before": row["after"], "after": row["before"]}
+                for row in last["media"]
+            ],
+            "retained": last.get("retained", {}),
+            "rollback_of": last["id"],
+        }
+        verify_versions(root, rollback, recovering=False)
+        restored = tree_blob(root, rollback["after"])
+        verify_snapshot(restored)
+        validate_reader(root, restored)
+        confirmation = digest(journal(root, last["id"]))
+        result = {
+            "plan": confirmation,
+            "publication": last["id"],
+            "snapshot": name,
+            "restore": rollback["after"],
+            "media": rollback["media"],
+            "applied": False,
+        }
+        if approved is not None:
+            if approved != confirmation:
+                raise PreviewChanged(
+                    "The publication changed. Open a new restoration preview."
+                )
+            activate(root, rollback)
+            result["applied"] = True
+        return result
 
 
 def describe(result: PublishResult, destination: Path) -> str:
@@ -271,7 +434,7 @@ def describe(result: PublishResult, destination: Path) -> str:
             f"and reused {result['reused']} linked media files."
         )
     if result["replaced"]:
-        lines.append("Previous versions were kept in the NAS PreviousMedia folder.")
+        lines.append("Previous versions were kept in the NAS publication archive.")
     if result["backup"]:
         lines.append(f"Previous tree snapshot saved as {result['backup']}.")
     return "\n".join(lines)
@@ -284,6 +447,7 @@ def run_remote(
     path = Path(__file__).resolve()
     media_code = path.with_name("publish_media.py").read_text(encoding="utf-8")
     preview_code = path.with_name("publish_preview.py").read_text(encoding="utf-8")
+    history_code = path.with_name("publication_history.py").read_text(encoding="utf-8")
     receiver = path.read_text(encoding="utf-8")
     script = (
         "import sys, types\n"
@@ -293,6 +457,9 @@ def run_remote(
         "preview = types.ModuleType('publish_preview')\n"
         "sys.modules['publish_preview'] = preview\n"
         f"exec({preview_code!r}, preview.__dict__)\n"
+        "history = types.ModuleType('publication_history')\n"
+        "sys.modules['publication_history'] = history\n"
+        f"exec({history_code!r}, history.__dict__)\n"
         f"exec({receiver!r})\n"
     )
     command = shlex.join(("python3", "-I", "-c", script, *args))
@@ -469,6 +636,27 @@ def plan_publication(
 
 def main(argv: list[str]) -> None:
     """Handle the user-facing command or a snapshot received over SSH."""
+    if argv[:1] == ["--validate-target"] and len(argv) == 4:
+        _, root, name, expected = argv
+        staging_validation(Path(root), name, expected)
+        return
+    if argv[:1] == ["--rollback-target"] and len(argv) in (3, 4):
+        _, root, name, *approved = argv
+        print(
+            json.dumps(
+                rollback_publication(
+                    Path(root), name, approved[0] if approved else None
+                )
+            )
+        )
+        return
+    if argv[:1] == ["--recover"] and len(argv) == 2:
+        root = Path(argv[1])
+        _, incoming, _ = publication_directories(root)
+        with (incoming / ".publish.lock").open("ab") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            recover(root)
+        return
     if argv[:1] == ["--receive"] and len(argv) in (4, 5, 6):
         _, root, name, expected, *options = argv
         previous = options[1] if len(options) == 2 else None
@@ -546,6 +734,14 @@ def main(argv: list[str]) -> None:
     preview_options.add_argument(
         "--expect-plan", help="publish only if the preview still matches"
     )
+    preview_options.add_argument(
+        "--rollback-preview",
+        action="store_true",
+        help="preview restoring the last publication",
+    )
+    preview_options.add_argument(
+        "--rollback-plan", help="restore after checking the exact rollback preview"
+    )
     parser.add_argument(
         "--verify-media",
         action="store_true",
@@ -555,17 +751,25 @@ def main(argv: list[str]) -> None:
         "--projects-root",
         type=Path,
         default=PROJECTS,
-        help="Mac folder containing projects with linked media",
+        help="Mac folder containing Penic and Ancestry",
     )
     parser.add_argument(
         "--nas-root", type=Path, default=NAS_ROOT, help="NAS mount as seen by the VM"
     )
     args = parser.parse_args(argv)
-    if not args.server:
-        parser.error("Set ROOTSMAGIC_PUBLISH_SERVER or pass --server.")
     source = args.source.expanduser()
     tree_filename(source.name)
     name = tree_filename(args.name or source.name)
+    if args.rollback_preview or args.rollback_plan:
+        options = (args.rollback_plan,) if args.rollback_plan else ()
+        print(
+            run_remote(
+                args.server, "--rollback-target", str(args.production), name, *options
+            )
+            .decode()
+            .rstrip()
+        )
+        return
     with TemporaryDirectory(prefix="rootsmagic-publish-") as directory:
         snapshot = Path(directory) / "snapshot.rmtree"
         make_snapshot(source, snapshot)
@@ -593,6 +797,16 @@ def main(argv: list[str]) -> None:
                 verify_media=args.verify_media or bool(args.expect_plan),
             )
             if args.preview:
+                if preview["status"] != "same":
+                    with snapshot.open("rb") as data:
+                        run_remote(
+                            args.server,
+                            "--validate-target",
+                            str(args.production),
+                            name,
+                            digest(snapshot),
+                            stream=data,
+                        )
                 print(json.dumps(preview, indent=None if args.json else 2))
                 return
             if preview["unavailable"] or preview["plan"] != args.expect_plan:

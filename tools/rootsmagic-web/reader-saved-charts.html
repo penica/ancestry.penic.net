@@ -1,0 +1,29 @@
+{% extends "reader-account-shell.html" %}
+{% block title %}Saved charts{% endblock %}
+{% block content %}
+<a class="back" href="/pedigree">Back to pedigree</a>
+<h1>Saved charts</h1>
+{% if items %}
+<ul class="reader-record-list">
+  {% for chart in items %}
+  <li>
+    <a href="{{ chart.path }}">{{ chart.name }}</a>
+    <p>{{ trees[chart.tree_slug].name }} · #{{ chart.person_id }}</p>
+    <form class="account-form" method="post" action="{{ chart.path }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="account-field">
+        <label for="saved-name-{{ chart.id }}">Chart name</label>
+        <input id="saved-name-{{ chart.id }}" name="name" value="{{ chart.name }}" maxlength="120" required>
+      </div>
+      <div class="account-actions">
+        <button type="submit" name="action" value="rename">Rename</button>
+        <button type="submit" name="action" value="delete" formnovalidate>Delete</button>
+      </div>
+    </form>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p>To save a view, open Chart tools on the pedigree and choose Save current chart.</p>
+{% endif %}
+{% endblock %}

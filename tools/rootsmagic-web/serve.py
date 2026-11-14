@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import os
 import signal
 import sqlite3
@@ -40,6 +41,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pydantic import BaseModel, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from pedigree_evidence import (
     INLINE_IMAGE_TYPES,
@@ -62,15 +64,21 @@ from pedigree_store import (
     pedigree_details,
     read_pedigree_details,
 )
-from reader_access import ReaderAccess, current_session, read_json, require_family_tree
+from reader_access import (
+    ReaderAccess,
+    current_session,
+    read_form,
+    read_json,
+    require_family_tree,
+)
 from reader_account_routes import account_router
 from reader_api_key_routes import integration_router
 from reader_chart_links import (
     TOKEN_PATTERN,
-    ChartLink,
     ChartLinkDraft,
     ChartLinkURL,
     ChartLinks,
+    ChartView,
     read_shared_chart,
 )
 from reader_comments import (
@@ -82,12 +90,15 @@ from reader_comments import (
     mutation_actor,
     read_comment,
     reader_actor,
+    verify_reader_mutation,
 )
 from reader_external import ExternalTree
 from reader_external_pdf import external_print_chart
 from reader_follow_ups import FollowUp, FollowUpDraft, FollowUps
 from reader_print_limits import PDF_BODY_LIMIT, print_slot, validate_print
 from reader_research_routes import follow_up_router
+from reader_saved_charts import PAGE as SAVED_CHARTS_PAGE
+from reader_saved_charts import SavedChart, SavedChartDraft, SavedChartName, SavedCharts
 from reader_settings import SettingsError, site_settings
 from reader_tree_state import CommentStorageError, TreeState, comments_path
 from store import (
@@ -99,6 +110,7 @@ from store import (
     connect,
     count_people,
     pedigree_search,
+    person_identity,
     person_names,
     profile,
     search,
@@ -173,6 +185,7 @@ class PublishResult(Record):
     copied: Annotated[int, Field(ge=0)]
     replaced: Annotated[int, Field(ge=0)]
     reused: Annotated[int, Field(ge=0)]
+    publication: str | None = None
 
 
 class RecordChanges(Record):
@@ -194,6 +207,28 @@ class PublishPreview(PublishPlan):
     updated_media: tuple[str, ...]
     reused: Annotated[int, Field(ge=0)]
     unavailable: tuple[str, ...]
+    identities: tuple[PublicationIdentity, ...]
+
+
+class PublicationIdentity(Record):
+    person: int
+    kind: Literal["reused", "removed", "renumbered"]
+    replacement: int | None
+    links: dict[str, int]
+
+
+class PublicationMedia(Record):
+    path: str
+    before: str | None
+    after: str | None
+
+
+class RollbackPreview(PublishPlan):
+    publication: str
+    snapshot: str
+    restore: str
+    media: tuple[PublicationMedia, ...]
+    applied: bool
 
 
 def local_publish_source(request: Request, tree: Tree) -> Path | None:
@@ -277,14 +312,60 @@ def allowed_hosts() -> list[str]:
 
 app = FastAPI(title="RootsMagic Reader", docs_url=None, redoc_url=None)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts())
+
+
+class PublicationFence:
+    """Keep a request on one published tree and NAS version while it streams."""
+
+    def __init__(self, app: ASGIApp, incoming: Path) -> None:
+        self.app = app
+        self.incoming = incoming
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        pending = self.incoming / ".publication-pending.json"
+        unavailable = JSONResponse(
+            {"detail": "A tree publication is being completed. Try again shortly."},
+            status_code=503,
+            headers={"Cache-Control": "no-store"},
+        )
+        if pending.exists():
+            await unavailable(scope, receive, send)
+            return
+        try:
+            lock = (self.incoming / ".publish-read.lock").open("rb")
+        except FileNotFoundError:
+            await self.app(scope, receive, send)
+            return
+        with lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError:
+                await unavailable(scope, receive, send)
+                return
+            if pending.exists():
+                await unavailable(scope, receive, send)
+                return
+            await self.app(scope, receive, send)
+
+
 templates = Environment(loader=FileSystemLoader(HERE), autoescape=select_autoescape())
 reader_access = ReaderAccess.from_environment()
+if reader_access.accounts is not None and (
+    default_database := os.environ.get("ROOTSMAGIC_DB")
+):
+    app.add_middleware(
+        PublicationFence, incoming=Path(default_database).parent.parent / "incoming"
+    )
 tree_state = TreeState(
     comments_path(reader_access.accounts.path if reader_access.accounts else None)
 )
 comment_store = Comments(tree_state)
 follow_up_store = FollowUps(tree_state)
 chart_links = ChartLinks(tree_state)
+saved_charts = SavedCharts(tree_state)
 app.include_router(account_router(reader_access, templates))
 if reader_access.accounts is not None:
     app.include_router(integration_router(reader_access))
@@ -305,7 +386,7 @@ async def local_headers(
         "frame-ancestors 'none'; base-uri 'none'"
     )
     if request.url.path == "/pedigree" or request.url.path.startswith(
-        "/pedigree/share/"
+        ("/pedigree/share/", SAVED_CHARTS_PAGE + "/")
     ):
         policy += "; script-src 'self'; connect-src 'self'; img-src 'self'"
     elif request.url.path in {
@@ -459,7 +540,8 @@ def render_pedigree(
     request: Request,
     tree: Tree,
     *,
-    shared: ChartLink | None = None,
+    view: ChartView | None = None,
+    view_person: PersonID | None = None,
     shared_changed: bool = False,
 ) -> HTMLResponse:
     starting_person, person_count = tree.starting_person_and_count()
@@ -472,8 +554,8 @@ def render_pedigree(
             starting_person=starting_person or 0,
             person_count=person_count,
             chart_settings=site_settings().chart,
-            shared_person=shared.person_id if shared else None,
-            shared_view=shared.view.model_dump_json(by_alias=True) if shared else None,
+            shared_person=view_person,
+            shared_view=view.model_dump_json(by_alias=True) if view else None,
             shared_changed=shared_changed,
             comments_token=comments_token(request),
             publish_token=PUBLISH_TOKEN
@@ -516,7 +598,85 @@ def shared_chart(
             detail="This shared chart is unavailable. Check that you have access to its tree.",
         )
     shared, changed = read_shared_chart(tree, link)
-    return render_pedigree(request, tree, shared=shared, shared_changed=changed)
+    return render_pedigree(
+        request,
+        tree,
+        view=shared.view,
+        view_person=shared.person_id,
+        shared_changed=changed,
+    )
+
+
+@app.post("/api/v1/pedigree/saved-charts", include_in_schema=False, status_code=201)
+async def save_chart(request: Request, tree: SelectedTree) -> ChartLinkURL:
+    actor = mutation_actor(request)
+    body = await read_json(request, 512 * 1024)
+    try:
+        draft = SavedChartDraft.model_validate_json(body, strict=True)
+    except ValidationError as error:
+        raise HTTPException(
+            status_code=422, detail="Enter a chart name of up to 120 characters."
+        ) from error
+    chart = await run_in_threadpool(saved_charts.save, tree, actor.id, draft)
+    return ChartLinkURL(path=chart.path)
+
+
+@app.get(SAVED_CHARTS_PAGE, include_in_schema=False)
+def saved_chart_list(request: Request) -> HTMLResponse:
+    owner = reader_actor(request).id
+    catalog = reader_access.visible_trees(request)
+    items = saved_charts.list(owner, tuple(tree.slug for tree in catalog))
+    return HTMLResponse(
+        templates.get_template("reader-saved-charts.html").render(
+            items=items,
+            trees={tree.slug: tree for tree in catalog},
+            csrf_token=comments_token(request),
+            reader_session=current_session(request),
+            system_local=reader_access.local_browser(request),
+        )
+    )
+
+
+def authorized_saved_chart(
+    request: Request, owner: int, chart_id: int
+) -> tuple[SavedChart, Tree]:
+    chart = saved_charts.get(owner, chart_id)
+    if chart is not None:
+        for tree in reader_access.visible_trees(request):
+            if chart.tree_slug == tree.slug:
+                return chart, tree
+    raise HTTPException(status_code=404, detail="This saved chart is unavailable.")
+
+
+@app.get(SAVED_CHARTS_PAGE + "/{chart_id}", include_in_schema=False)
+def open_saved_chart(request: Request, chart_id: RecordID) -> HTMLResponse:
+    chart, tree = authorized_saved_chart(request, reader_actor(request).id, chart_id)
+    return render_pedigree(
+        request, tree, view=chart.reopen(tree), view_person=chart.person_id
+    )
+
+
+@app.post(SAVED_CHARTS_PAGE + "/{chart_id}", include_in_schema=False)
+async def change_saved_chart(request: Request, chart_id: RecordID) -> RedirectResponse:
+    form = await read_form(request)
+    actor = verify_reader_mutation(request, form.get("csrf_token", ""))
+    chart, _ = await run_in_threadpool(
+        authorized_saved_chart, request, actor.id, chart_id
+    )
+    action = form.get("action")
+    if action == "delete":
+        name = None
+    elif action == "rename":
+        try:
+            name = SavedChartName(name=form.get("name", "")).name
+        except ValidationError as error:
+            raise HTTPException(
+                status_code=422, detail="Enter a chart name of up to 120 characters."
+            ) from error
+    else:
+        raise HTTPException(status_code=422, detail="Choose a saved chart action.")
+    await run_in_threadpool(saved_charts.update, actor.id, chart, name)
+    return RedirectResponse(SAVED_CHARTS_PAGE, status_code=303)
 
 
 @contextmanager
@@ -554,6 +714,22 @@ def api_publish(
     """Publish only the snapshot and media reviewed in the preview."""
     with authorized_publish(request, tree) as source:
         return run_publisher(source, PublishResult, "--expect-plan", confirmation.plan)
+
+
+@app.post("/api/v1/pedigree/publish/rollback-preview", include_in_schema=False)
+def api_rollback_preview(request: Request, tree: SelectedTree) -> RollbackPreview:
+    with authorized_publish(request, tree) as source:
+        return run_publisher(source, RollbackPreview, "--rollback-preview")
+
+
+@app.post("/api/v1/pedigree/publish/rollback", include_in_schema=False)
+def api_rollback(
+    request: Request, tree: SelectedTree, confirmation: PublishPlan
+) -> RollbackPreview:
+    with authorized_publish(request, tree) as source:
+        return run_publisher(
+            source, RollbackPreview, "--rollback-plan", confirmation.plan
+        )
 
 
 @app.get("/api/v1/pedigree/{person_id}/details", tags=["Pedigree"])
@@ -764,10 +940,22 @@ def print_pedigree(request: PrintRequest, tree: Tree) -> bytes:
     include_in_schema=False,
 )
 def pedigree_record_page(
-    request: Request, person_id: RecordID, tree: SelectedTree
+    request: Request,
+    person_id: RecordID,
+    tree: SelectedTree,
+    identity: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
 ) -> HTMLResponse:
     """Render a record and its linked images from the same read-only snapshot."""
     with connect(tree.database) as db:
+        if (
+            identity is not None
+            and (person_identity(db, PersonID(person_id)) or "").casefold()
+            != identity.casefold()
+        ):
+            raise HTTPException(
+                status_code=410,
+                detail="The linked record is unavailable or its RootsMagic ID has changed. Review the link in Registers.",
+            )
         record = read_pedigree_details(db, PersonID(person_id))
         images = (
             record_images(db, tree.path, record)

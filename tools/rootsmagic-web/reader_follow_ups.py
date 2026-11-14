@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Annotated, Final, Literal
@@ -136,6 +137,8 @@ class FollowUps:
         status: FollowUpStatus,
         limit: int,
         offset: int,
+        *,
+        matches: dict[str, tuple[PersonID, ...]] | None = None,
     ) -> tuple[FollowUp, ...]:
         if not trees:
             return ()
@@ -145,6 +148,7 @@ class FollowUps:
             "open": "AND completed_at IS NULL",
             "complete": "AND completed_at IS NOT NULL",
         }[status]
+        names = json.dumps(matches) if matches is not None else None
         try:
             with self.state.connect(write=False) as db:
                 if not has_follow_ups(db):
@@ -152,8 +156,12 @@ class FollowUps:
                 rows = db.execute(
                     f"""SELECT * FROM follow_ups WHERE owner = ? AND tree_slug IN ({placeholders})
                          AND (? IS NULL OR person_id = ?) {condition}
+                         AND (? IS NULL OR EXISTS (
+                             SELECT 1 FROM json_each(?) AS trees, json_each(trees.value) AS ids
+                             WHERE trees.key = follow_ups.tree_slug AND ids.value = follow_ups.person_id
+                         ))
                          ORDER BY tree_slug, person_id, id LIMIT ? OFFSET ?""",  # noqa: S608
-                    (owner, *trees, person, person, limit, offset),
+                    (owner, *trees, person, person, names, names, limit, offset),
                 )
                 return tuple(FollowUp.model_validate(dict(row)) for row in rows)
         except FileNotFoundError:

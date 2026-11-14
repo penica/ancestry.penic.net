@@ -35,6 +35,8 @@ class ChartView(Record):
     children: bool
     siblings: bool
     gaps: bool
+    family_groups: bool = False
+    layout: Literal["horizontal", "vertical"] = "horizontal"
     scale: Annotated[float, Field(gt=0, le=2)]
     scroll_left: Annotated[float, Field(ge=0, le=2**31 - 1)]
     scroll_top: Annotated[float, Field(ge=0, le=2**31 - 1)]
@@ -109,7 +111,7 @@ def public_chart_view(
 
         return view.model_copy(
             update={
-                "gaps": False,
+                "gaps": view.gaps and not tree.external,
                 "branches": tuple(
                     (key, tuple(path for path in paths if permitted(path)))
                     for key, paths in view.branches

@@ -1,4 +1,4 @@
-# Deploy RootsMagic Reader on Linux
+# RootsMagic Reader on ancestry.penic.org
 
 The reader is a private browser and API for published copies of the RootsMagic tree. RootsMagic on the Mac is where edits are saved. The Linux reader opens its local SQLite snapshot in read-only mode and serves linked files from the NAS.
 
@@ -6,24 +6,27 @@ The reader is a private browser and API for published copies of the RootsMagic t
 
 | Location | Purpose |
 | --- | --- |
-| `/home/rootsmagic-reader/RootsMagicReader/` | SSH preview and release staging |
+| `/home/penica/RootsMagicReader/` | SSH preview and release staging |
 | `/srv/rootsmagic-reader/releases/` | Versioned application releases and Python environments |
 | `/srv/rootsmagic-reader/current` | Link to the active release |
 | `/srv/rootsmagic-reader/trees/` | Published `.rmtree` files listed by the Tree selector |
 | `/srv/rootsmagic-reader/incoming/` | Private staging for a publication in progress |
 | `/srv/rootsmagic-reader/backups/` | Prior snapshots for rollback |
 | `/srv/rootsmagic-reader/state/accounts.sqlite3` | VM accounts, tree access, invitations, and sessions |
-| `/srv/rootsmagic-reader/state/comments.sqlite3` | Reader comments, research follow-ups, and shared chart views |
+| `/srv/rootsmagic-reader/state/comments.sqlite3` | Reader comments, follow-ups, shared charts, and private named charts |
+| `/srv/rootsmagic-reader/state/publisher.json` | Optional per-file tree slug and local Registers database for counting references in preview |
 | `/srv/rootsmagic-reader/state/settings.json` | Saved tree, chart, security, and backup settings |
 | `/srv/rootsmagic-reader/state-backups/` | Private daily account, comment, and encryption-key backups |
 | `/srv/rootsmagic-reader/backup-status/latest.json` | The last verified backup’s timestamp and included file types |
 | `/etc/rootsmagic-reader/mfa.key` | Root-owned key protecting authenticator secrets |
-| `/mnt/archive/Books/` | Existing NAS book archive |
-| `/mnt/archive/RootsMagicReader/Media/` | NAS copies of linked files from the Mac |
-| `/mnt/archive/RootsMagicReader/PreviousMedia/` | Previous copies of files updated by Publish |
+| `/mnt/registers-archive/Books/` | Existing NAS book archive |
+| `/mnt/registers-archive/RootsMagicReader/Media/` | NAS copies of linked files from the Mac |
+| `/mnt/registers-archive/RootsMagicReader/PublicationMedia/` | Verified prior and new media bytes for publication recovery |
+| `/srv/rootsmagic-reader/backups/publications/` | Private history of tree and media checksums |
+| `/srv/rootsmagic-reader/backups/tree-versions/` | Verified snapshots used by publication history |
 | `/etc/rootsmagic-reader/reader.env` | Production tree, host, media, and PDF font settings |
 
-The `rootsmagic-reader.service` systemd unit runs as `rootsmagic-reader` and listens on `127.0.0.1:8765`. Nginx serves `reader.example.org` and the LAN address `lan-reader.example.org` over HTTPS. Replace the example hostnames with your own. Place any upstream proxy and firewall in the intended network path. The installed unit and Nginx site are based on the templates in this folder.
+The `rootsmagic-reader.service` systemd unit runs as `penica` and listens on `127.0.0.1:8765`. Nginx serves `ancestry.penic.org` and the LAN address `ancestry.penic.net` over HTTPS. The public hostname has a proxied Cloudflare CNAME to `brezice.penic.org`, where Nginx Proxy Manager forwards the reader traffic. Manage network access to the reader on the physical firewalls. `registers.penic.net` has its own Nginx site. The installed unit and Nginx site are based on the templates in this folder.
 
 `ROOTSMAGIC_DB` selects the published working tree and `ROOTSMAGIC_TREE_DIR` sets the folder scanned for additional files. `ROOTSMAGIC_DEFAULT_TREE_SLUG` and `ROOTSMAGIC_START_PERSON` preserve the initial tree identity and starting person. An Administrator can change the default from the published catalog in **System settings → Trees and chart**. The reader preserves each account’s tree permissions.
 
@@ -35,7 +38,7 @@ Open **Account → System settings** to reach **Manage accounts** or **Email ser
 
 Signed-in users manage their name, username, contact email, and password under **Account settings**. Changes to username, email, and password require the current password and replace existing sessions. The contact email is stored as profile information. **My person** links the account to a record in an assigned tree and adds a shortcut in that tree's reader header. Profile and shortcut changes are stored in the VM account database.
 
-The production service uses `ROOTSMAGIC_ACCOUNTS_DB` and `ROOTSMAGIC_PUBLIC_ORIGIN`. The public origin is `https://reader.example.org` and is used for invitation links. Set `ROOTSMAGIC_ADDITIONAL_ORIGINS` to `https://lan-reader.example.org` and allow both hostnames in `ROOTSMAGIC_ALLOWED_HOSTS`. Create the state directory as `rootsmagic-reader` with mode `0700` when setting up the VM. Keep the account database on the VM with the other service state. The Mac **Publish** workflow continues to send tree snapshots independently of account data.
+The production service uses `ROOTSMAGIC_ACCOUNTS_DB` and `ROOTSMAGIC_PUBLIC_ORIGIN`. The public origin is `https://ancestry.penic.org` and is used for invitation links. Set `ROOTSMAGIC_ADDITIONAL_ORIGINS` to `https://ancestry.penic.net` and allow both hostnames in `ROOTSMAGIC_ALLOWED_HOSTS`. Create the state directory as `penica` with mode `0700` when setting up the VM. Keep the account database on the VM with the other service state. The Mac **Publish** workflow continues to send tree snapshots independently of account data.
 
 The service sets `ROOTSMAGIC_REQUIRE_ACCOUNTS=1` in its launch command. The reader validates the account database and HTTPS origin before opening the listener. If the database setting is blank, the file is unavailable, or its schema needs migration, check the service journal, correct `/etc/rootsmagic-reader/reader.env` or migrate the database, and restart the service.
 
@@ -45,18 +48,18 @@ The daily `rootsmagic-reader-state-backup.timer` runs SQLite’s online backup. 
 
 Set `ROOTSMAGIC_SETTINGS_FILE` to an absolute private JSON file to override the saved settings location. Keep `ROOTSMAGIC_BACKUP_STATUS_FILE` consistent between the reader and the backup service. The default status directory is owned by root and readable by the reader group.
 
-Before updating an existing VM, back up the account database and run `.venv/bin/python reader_accounts.py migrate /srv/rootsmagic-reader/state/accounts.sqlite3` as `rootsmagic-reader` from the tested release. The migration creates the API key table, adds missing account fields and tables, and enables the External Reader role in invitations and tree memberships. Existing accounts, access, sessions, and invitations are preserved. Restart the service with the updated release after migration.
+Before updating an existing VM, back up the account database and run `.venv/bin/python reader_accounts.py migrate /srv/rootsmagic-reader/state/accounts.sqlite3` as `penica` from the tested release. The migration creates the API key table, adds missing account fields and tables, and enables the External Reader role in invitations and tree memberships. Existing accounts, access, sessions, and invitations are preserved. Restart the service with the updated release after migration.
 
 API key metadata and hashes are included in the account database backup. After restoring an older backup, review **System settings → API keys** and revoke any credentials the backup brought back. The proxy must pass the HTTPS scheme and `Authorization` header to the reader for [registry integration](../README.md#registry-integration-api).
 
-For a new VM, run this over SSH as `rootsmagic-reader` to create the first administrator's setup invitation. Copy the output privately into the `token` query parameter of `https://reader.example.org/invite`. The setup link expires after 30 minutes. Run the command again after expiry to issue a fresh link.
+For a new VM, run this over SSH as `penica` to create the first administrator's setup invitation. Copy the output privately into the `token` query parameter of `https://ancestry.penic.org/invite`. The setup link expires after 30 minutes. Run the command again after expiry to issue a fresh link.
 
 ```sh
 cd /srv/rootsmagic-reader/current
-.venv/bin/python reader_accounts.py bootstrap-invite /srv/rootsmagic-reader/state/accounts.sqlite3 admin
+.venv/bin/python reader_accounts.py bootstrap-invite /srv/rootsmagic-reader/state/accounts.sqlite3 albin
 ```
 
-If an account holder forgets their password, run `reader_accounts.py reset-password /srv/rootsmagic-reader/state/accounts.sqlite3 USERNAME` with the release's Python interpreter over SSH as `rootsmagic-reader`. The command prompts for the password and ends that user's current sessions.
+If an account holder forgets their password, run `reader_accounts.py reset-password /srv/rootsmagic-reader/state/accounts.sqlite3 USERNAME` with the release's Python interpreter over SSH as `penica`. The command prompts for the password and ends that user's current sessions.
 
 ### Two-step verification
 
@@ -64,15 +67,15 @@ Users can turn on **Two-step verification** under **Account settings**. The read
 
 The production systemd unit supplies `/etc/rootsmagic-reader/mfa.key` as a service credential. Keep this root-owned file at mode `0600` and back it up securely alongside the account database. The key is generated once per VM. Store and restore the key together with the corresponding account state. [systemd credentials documentation](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#Credentials)
 
-If a user loses both the authenticator and every recovery code, the VM operator can verify the user's identity and run `reader_accounts.py reset-mfa /srv/rootsmagic-reader/state/accounts.sqlite3 USERNAME` with the release's Python interpreter over SSH as `rootsmagic-reader`. The reset removes the factor and revokes that account's sessions. The user can sign in and enroll a new authenticator.
+If a user loses both the authenticator and every recovery code, the VM operator can verify the user's identity and run `reader_accounts.py reset-mfa /srv/rootsmagic-reader/state/accounts.sqlite3 USERNAME` with the release's Python interpreter over SSH as `penica`. The reset removes the factor and revokes that account's sessions. The user can sign in and enroll a new authenticator.
 
 ### Passkeys
 
-Passkeys use WebAuthn on the canonical HTTPS origin, `https://reader.example.org`. Set up, name, or remove a passkey in **Account settings → Passkeys**. Changes require the current password and any configured second factor. Removing a passkey also signs out the account's other sessions. The LAN hostname uses password sign-in and the existing two-step verification.
+Passkeys use WebAuthn on the canonical HTTPS origin, `https://ancestry.penic.org`. Set up, name, or remove a passkey in **Account settings → Passkeys**. Changes require the current password and any configured second factor. Removing a passkey also signs out the account's other sessions. The LAN hostname uses password sign-in and the existing two-step verification.
 
 ### Sign-in and export limits
 
-Administrators can set the password and second-factor attempt allowances and the per-account PDF export allowance in **System settings → Security and limits**. The reader also limits sign-in attempts by visitor address. On the public proxy host, Nginx Proxy Manager uses `CF-Connecting-IP` only for connections from Cloudflare's published IP ranges and replaces `X-Real-IP` with the verified address. Uncomment `set_real_ip_from` in the public virtual host and set the exact upstream proxy address after verification. The VM accepts that header only on the public hostname and only from Nginx Proxy Manager's exact address. It rebuilds `X-Forwarded-For` with the resulting address. The LAN hostname uses its immediate peer. Keep the proxy address in `ROOTSMAGIC_SHARED_PROXY_ADDRESSES` so account limits still apply if the only address available is the proxy's own address. After changing either proxy, verify the public address and repeat a direct-origin request with forged `CF-Connecting-IP`, `X-Real-IP`, and `X-Forwarded-For` headers. PDF requests have chart and body limits and a shared render limit.
+Administrators can set the password and second-factor attempt allowances and the per-account PDF export allowance in **System settings → Security and limits**. The reader also limits sign-in attempts by visitor address. On the public proxy host, Nginx Proxy Manager uses `CF-Connecting-IP` only for connections from Cloudflare's published IP ranges and replaces `X-Real-IP` with the verified address. The VM accepts that header only on the public hostname and only from Nginx Proxy Manager's exact address. It rebuilds `X-Forwarded-For` with the resulting address. The LAN hostname uses its immediate peer. Keep the proxy address in `ROOTSMAGIC_SHARED_PROXY_ADDRESSES` so account limits still apply if the only address available is the proxy's own address. After changing either proxy, verify the public address and repeat a direct-origin request with forged `CF-Connecting-IP`, `X-Real-IP`, and `X-Forwarded-For` headers. PDF requests have chart and body limits and a shared render limit.
 
 Security events use the `reader_audit` prefix in the service journal. They record the event, outcome, and internal account or invitation IDs. Check them with `sudo journalctl -u rootsmagic-reader.service --grep reader_audit`.
 
@@ -93,7 +96,7 @@ set +a
 Forward the port from a separate terminal on the Mac.
 
 ```sh
-ssh -N -L 127.0.0.1:18765:127.0.0.1:18765 rootsmagic-reader@lan-reader.example.org
+ssh -N -L 127.0.0.1:18765:127.0.0.1:18765 penica@ancestry.penic.net
 ```
 
 Open the preview while both commands are running. [SSH preview](http://127.0.0.1:18765/pedigree)
@@ -102,17 +105,16 @@ Open the preview while both commands are running. [SSH preview](http://127.0.0.1
 
 Save in RootsMagic first. Open the working tree in the Mac reader and click **Publish** beside **Refresh**. Start the Mac reader with `ROOTSMAGIC_ENABLE_PUBLISH=1` to show the button. The preview lists changes to the compared record tables and shows new, updated, reusable, and unavailable media. Click **Publish to VM** after reviewing the preview. Open a fresh preview if the saved tree or its linked media changes. After publication, check the accepted filename, media counts, and previous snapshot filename. Click **Refresh** in the VM reader.
 
-To run the same publication from the Mac terminal, use Python 3.12 or newer and a verified SSH connection. Set `ROOTSMAGIC_PUBLISH_SERVER` in the Mac reader’s launch environment to use the browser button.
+To run the same publication from the Mac terminal, use Python 3.12 or newer and the existing verified SSH connection.
 
 ```sh
 python3 tools/rootsmagic-web/deploy/publish-tree.py --with-media \
-  --server rootsmagic-reader@lan-reader.example.org \
-  "$HOME/Projects/FamilyTrees/family-tree.rmtree"
+  "$HOME/Projects-Private/Penic/Vogrinc-Urek Penič-Hribar.rmtree"
 ```
 
 Add `--preview` to compare the saved tree and linked media. Repeat previews reuse verified checksums for unchanged managed NAS files. Use `--preview --verify-media` to read every managed NAS file again. Pass the returned `plan` value as `--expect-plan <value>` to publish that reviewed snapshot. Confirmation and installation check media contents directly.
 
-The publisher takes one SQLite snapshot, verifies or copies the media it references, then sends that same snapshot over SSH. It reuses books already in the NAS archive and copies Mac files into the dedicated NAS media directory. The VM checks the snapshot checksum and SQLite contents, saves the previous snapshot in `backups/`, and atomically replaces the file in `trees/`. The default destination name follows the source filename with Unicode normalized for Linux. Use `--name 'family-tree.rmtree'` when publishing a differently named copy as the working tree. Publish additional trees under their own names.
+The publisher takes one SQLite snapshot, verifies or copies the media it references, then sends that same snapshot over SSH. It reuses books already in the NAS archive and copies Mac files into the dedicated NAS media directory. The VM checks SQLite and runs the installed reader’s search, pedigree and full-record queries against the staged copy with both family and External Reader access. A changed ID is listed with potential references. Reassigning an ID already recorded in publication history blocks the update. To include the local Registers reference count, set the exact published filename as a key in the private VM `state/publisher.json`. Its value contains `tree_slug` and `registers_database`. The SSH publisher uses the VM operator’s existing local PostgreSQL access for a read-only count. The key and reference contents stay on the server. The default destination name follows the source filename with Unicode normalized for Linux. Use `--name 'Vogrinc-Urek Penič-Hribar.rmtree'` when publishing a differently named copy as the working tree. Publish additional trees under their own names.
 
 Click **Refresh** in the reader after a successful publication. Reload the browser tab when adding a tree so the Tree selector reloads the file list. Publication is on demand. A failed check leaves the published tree available. If Publish reports a missing file, check the media link in RootsMagic and save before retrying. If SQLite sidecar files are reported beside a published tree, inspect how that file was placed there before retrying. If SSH host verification fails, confirm the VM host key through a trusted channel.
 
@@ -121,34 +123,34 @@ Click **Refresh** in the reader after a successful publication. Reload the brows
 Set `ROOTSMAGIC_MEDIA_MAP` in the service environment as a JSON object. The keys are normalized absolute directories recorded in RootsMagic, with forward slashes. The values are absolute Linux directories. The longest matching prefix wins.
 
 ```ini
-ROOTSMAGIC_MEDIA_MAP='{"/Volumes/home/FamilyArchive/Books":"/mnt/archive/Books","/Volumes/home-1/FamilyArchive/Books":"/mnt/archive/Books"}'
+ROOTSMAGIC_MEDIA_MAP='{"/Volumes/home/DruzinskoDrevo/Books":"/mnt/registers-archive/Books","/Volumes/home-1/DruzinskoDrevo/Books":"/mnt/registers-archive/Books"}'
 ```
 
-Before enabling media publication, adapt the sample project and archive directories in `publish_media.py` on both the Mac and the VM. Use matching destinations in `ROOTSMAGIC_MEDIA_MAP`. The publisher preserves exact recorded filenames, including Unicode spellings. Keep the NAS mount available for publication and serving linked files.
+The production mappings also connect the Mac Penic and Ancestry project directories to `RootsMagicReader/Media/penic` and `RootsMagicReader/Media/ancestry` on the NAS. The publisher preserves exact recorded filenames, including Unicode spellings. Keep the NAS mount available for publication and serving linked files.
 
 The production environment configures separate font files for regular, bold, and title text. Verify diacritics such as `č` and `š`, the 8-point IDs, and the 841 mm roll dimension after changing fonts. Older RootsMagic RTF notes use the Linux text converter configured for the app.
 
 ## TLS and renewal
 
-Certbot uses the Cloudflare DNS plugin and reads `/etc/rootsmagic-reader/cloudflare.ini` on the VM. Keep the file readable only by the account running Certbot. Let’s Encrypt validates the hostname through DNS. [Certbot Cloudflare plugin documentation](https://certbot-dns-cloudflare.readthedocs.io/en/stable/)
+Certbot uses the Cloudflare DNS plugin and reads `/etc/registers/secrets/cloudflare.ini` on the VM. Keep the file readable only by the account running Certbot. Let’s Encrypt validates the hostname through DNS. [Certbot Cloudflare plugin documentation](https://certbot-dns-cloudflare.readthedocs.io/en/stable/)
 
 For a fresh issuance, run the command on the VM after installing Certbot and its Cloudflare plugin.
 
 ```sh
 sudo certbot certonly --dns-cloudflare \
-  --dns-cloudflare-credentials /etc/rootsmagic-reader/cloudflare.ini \
+  --dns-cloudflare-credentials /etc/registers/secrets/cloudflare.ini \
   --dns-cloudflare-propagation-seconds 35 \
   --config-dir /etc/letsencrypt-rootsmagic-reader \
   --work-dir /var/lib/letsencrypt-rootsmagic-reader \
   --logs-dir /var/log/letsencrypt-rootsmagic-reader \
-  --cert-name lan-reader.example.org -d lan-reader.example.org -d reader.example.org
+  --cert-name ancestry.penic.net -d ancestry.penic.net -d ancestry.penic.org
 ```
 
 Check the renewal timer and simulate a renewal for this certificate.
 
 ```sh
 systemctl status rootsmagic-reader-certificate.timer
-sudo certbot renew --cert-name lan-reader.example.org --dry-run \
+sudo certbot renew --cert-name ancestry.penic.net --dry-run \
   --config-dir /etc/letsencrypt-rootsmagic-reader \
   --work-dir /var/lib/letsencrypt-rootsmagic-reader \
   --logs-dir /var/log/letsencrypt-rootsmagic-reader
@@ -161,22 +163,23 @@ The deploy hook validates the Nginx configuration and reloads it after a success
 ```sh
 sudo systemctl status rootsmagic-reader.service
 sudo journalctl -u rootsmagic-reader.service -n 100 --no-pager
-curl --silent --show-error -o /dev/null -w '%{http_code}\n' https://lan-reader.example.org/api/v1/trees
+curl --silent --show-error -o /dev/null -w '%{http_code}\n' https://ancestry.penic.net/api/v1/trees
 ```
 
-The API should return `401` before sign-in. From a client permitted by your firewall rules, sign in and open the working tree. Verify the starting person and their recorded siblings. Search by a known record ID, switch trees when more than one has been assigned, and test branch expansion, full record images, and **Print PDF**. After publishing a newer snapshot, check that **Refresh** reads it while preserving the current starting person.
+The API should return `401` before sign-in. From a client permitted by your firewall rules, sign in and open the working tree. Verify Albin Penič (#37) with Vinko Penič (#240). Search `#240`, switch trees when more than one has been assigned, and test branch expansion, full record images, and **Print PDF**. After publishing a newer snapshot, check that **Refresh** reads it while preserving the current starting person.
 
 Stage application updates as new release directories. Verify the release on the private preview port, point `current` at the tested release, and restart `rootsmagic-reader.service`. For a production rollback, select a release that supports required hosted accounts and two-step verification. The same account state, tree snapshots, and NAS media are shared across releases.
 
-To restore a tree on the VM, log in as `rootsmagic-reader`, select the snapshot from `backups/`, and pass it through the same validation and atomic installation used for publication. Use the original tree filename so saved reader links continue to work.
+Use **Publish → Preview restore** on the Mac to inspect the last tracked publication and its changed media. **Restore on VM** uses this exact preview. The first tracked publication retains the previous tree when one exists. Older, untracked snapshots have no verified NAS media history. The preview lists files to restore and copies introduced by the publication that will be removed from the Reader’s media folder.
+
+For a CLI restore, on the Mac:
 
 ```sh
-root=/srv/rootsmagic-reader
-tree='family-tree.rmtree'
-ls -lt "$root/backups"
-backup="$root/backups/<selected filename>"
-checksum=$(sha256sum -- "$backup" | cut -d ' ' -f 1)
-python3 "$root/current/deploy/publish-tree.py" --receive "$root" "$tree" "$checksum" < "$backup"
+source_tree="$PWD/../Penic/Vogrinc-Urek Penič-Hribar.rmtree"
+python3 tools/rootsmagic-web/deploy/publish-tree.py --rollback-preview "$source_tree"
+python3 tools/rootsmagic-web/deploy/publish-tree.py --rollback-plan '<plan from preview>' "$source_tree"
 ```
 
-Check the restored tree with **Refresh**. The previous active snapshot is backed up during the restore. Keep the snapshots and app releases needed for rollback and remove older ones when their retention is no longer useful.
+The publisher checks all changed file versions before activation, records a recovery journal before its first live write, and holds a write lock while switching the tree and NAS media. The hosted reader waits for active responses to finish and returns a temporary unavailable response for new requests during the switch. The next preview resumes an interrupted transaction. To resume it directly, run `python3 /srv/rootsmagic-reader/current/deploy/publish-tree.py --recover /srv/rootsmagic-reader` over SSH as `penica`. If recovery stops on an unexpected checksum, compare the files with the pending journal and preserve the journal for recovery. Refresh the hosted reader after a restore.
+
+Retain each publication’s journal, the tree versions it references and the matching NAS media versions together. Verify application code updates against a disposable tree and media directory independently of a production publication.

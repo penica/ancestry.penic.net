@@ -40,7 +40,7 @@
         {% if publish_token %}
         <button class="reset" id="pedigree-publish" type="button" data-publish-token="{{ publish_token }}">Publish</button>
         {% endif %}
-        <a class="reset previous" id="pedigree-previous" role="link" aria-disabled="true">Previous person</a>
+        <a class="reset previous" id="pedigree-previous" role="link" aria-label="Previous person" aria-disabled="true">Previous<span class="previous-description">&nbsp;person</span></a>
         <a class="reset" id="pedigree-reset" href="{{ tree.url('/pedigree') }}">Reset view</a>
       </div>
     </div>
@@ -60,18 +60,13 @@
           <p id="pedigree-children" hidden></p>
         </div>
         <div class="chart-navigation" aria-label="Chart navigation">
-          <label for="pedigree-generation">Go to generation
-            <select id="pedigree-generation" disabled></select>
-          </label>
           <button class="reset" id="pedigree-center" type="button" aria-label="Center on starting person" disabled>Center<span class="center-description">&nbsp;on starting person</span></button>
-          <label class="children-toggle"><input id="pedigree-show-children" type="checkbox"{% if chart_settings.children %} checked{% endif %} disabled> Show children</label>
-          <label class="children-toggle"><input id="pedigree-show-siblings" type="checkbox"{% if chart_settings.siblings %} checked{% endif %} disabled> Show siblings</label>
           <span id="pedigree-children-status" class="hint" role="status" hidden></span>
           <div class="chart-view-controls" role="group" aria-label="Chart view">
             <button class="reset zoom-button" id="pedigree-zoom-out" type="button" aria-label="Zoom out" disabled>−</button>
             <output id="pedigree-zoom-level" aria-label="Zoom level">100%</output>
             <button class="reset zoom-button" id="pedigree-zoom-in" type="button" aria-label="Zoom in" disabled>+</button>
-            <button class="reset" id="pedigree-fit" type="button" disabled>Fit to view</button>
+            <button class="reset" id="pedigree-fit" type="button" aria-label="Fit to view" disabled>Fit<span class="fit-description">&nbsp;to view</span></button>
             <button class="reset" id="pedigree-fullscreen" type="button" aria-pressed="false">Full screen</button>
           </div>
         </div>
@@ -84,6 +79,10 @@
                 <div class="chart-navigation">
                   <button class="reset" id="pedigree-relationship" type="button" aria-haspopup="dialog" disabled>Find relationship</button>
                   <button class="reset" id="pedigree-worklist" type="button" aria-haspopup="dialog" aria-controls="research-worklist"{% if tree.external %} hidden{% endif %} disabled>Research worklist</button>
+                  {% if comments_token %}
+                  <button class="reset" id="pedigree-save-chart" type="button" aria-haspopup="dialog" disabled>Save current chart</button>
+                  <a class="reset" href="/pedigree/saved-charts">Saved charts</a>
+                  {% endif %}
                   {% if comments_token and not tree.external %}
                   <a class="reset" href="{{ tree.url('/pedigree/follow-ups') }}">Saved follow-ups</a>
                   <a class="reset" href="{{ tree.url('/pedigree/comments') }}">Recent comments</a>
@@ -95,6 +94,18 @@
               <div class="pedigree-tool-group" role="group" aria-labelledby="pedigree-branch-tools">
                 <h3 id="pedigree-branch-tools">Branches</h3>
                 <div class="chart-navigation">
+                  <label for="pedigree-generation">Go to generation
+                    <select id="pedigree-generation" disabled></select>
+                  </label>
+                  <label for="pedigree-layout">Layout
+                    <select id="pedigree-layout" disabled>
+                      <option value="horizontal">Horizontal</option>
+                      <option value="vertical">Vertical</option>
+                    </select>
+                  </label>
+                  <label class="children-toggle"><input id="pedigree-family-groups" type="checkbox" disabled> Show family groups</label>
+                  <label class="children-toggle"><input id="pedigree-show-children" type="checkbox"{% if chart_settings.children %} checked{% endif %} disabled> Show children</label>
+                  <label class="children-toggle"><input id="pedigree-show-siblings" type="checkbox"{% if chart_settings.siblings %} checked{% endif %} disabled> Show siblings</label>
                   <label for="pedigree-depth">Initial depth
                     <select id="pedigree-depth">
                     {% for depth in (3, 5, 8, 11) %}
@@ -107,6 +118,13 @@
               <div class="pedigree-tool-group" role="group" aria-labelledby="pedigree-print-tools">
                 <h3 id="pedigree-print-tools">Print</h3>
                 <button class="reset" id="pedigree-print" type="button" disabled>Print PDF</button>
+              </div>
+              <div class="pedigree-tool-group phone-tools" role="group" aria-labelledby="pedigree-page-tools">
+                <h3 id="pedigree-page-tools">Pedigree</h3>
+                <div class="chart-navigation" id="pedigree-phone-tools">
+                  <a class="reset" href="{{ tree.url('/people') }}">People directory</a>
+                  {% if local_system %}<a class="reset" href="/system">System settings</a>{% endif %}
+                </div>
               </div>
             </div>
           </details>
@@ -209,6 +227,19 @@
     </div>
   </dialog>
   {% if comments_token %}
+  <dialog class="reader-dialog" id="save-chart-dialog" aria-labelledby="save-chart-title">
+    <div class="details-heading">
+      <h2 id="save-chart-title">Save current chart</h2>
+      <form method="dialog"><button class="reset" type="submit">Close</button></form>
+    </div>
+    <form id="save-chart-form" class="chart-share-result">
+      <label for="save-chart-name">Chart name</label>
+      <input id="save-chart-name" maxlength="120" required autofocus>
+      <button class="reset" type="submit">Save chart</button>
+    </form>
+    <p id="save-chart-status" role="status"></p>
+    <a id="saved-chart-link" hidden>Open saved chart</a>
+  </dialog>
   <dialog class="reader-dialog" id="share-chart-dialog" aria-labelledby="share-chart-title">
     <div class="details-heading">
       <h2 id="share-chart-title">Share chart</h2>
@@ -230,15 +261,26 @@
       <form method="dialog"><button class="reset" type="submit" autofocus>Close</button></form>
     </div>
     <p>{{ tree.name }}</p>
+    <div class="chart-navigation" aria-label="Publication options">
+      <button class="reset" id="publish-update-preview" type="button">Preview update</button>
+      <button class="reset" id="publish-rollback-preview" type="button">Preview restore</button>
+    </div>
     <p id="publish-preview-status" class="hint" role="status"></p>
     <div id="publish-preview-plan" hidden>
       <h3>Tree snapshot</h3>
       <p id="publish-preview-snapshot"></p>
       <ul id="publish-preview-records"></ul>
+      <div id="publish-preview-identities"></div>
       <h3>Linked media</h3>
       <p id="publish-preview-counts"></p>
       <div id="publish-preview-media"></div>
       <button class="reset" id="publish-confirm" type="button" disabled>Publish to VM</button>
+    </div>
+    <div id="publish-rollback-plan" hidden>
+      <h3>Restore previous publication</h3>
+      <p id="publish-rollback-snapshot"></p>
+      <div id="publish-rollback-media"></div>
+      <button class="reset" id="publish-rollback-confirm" type="button" disabled>Restore on VM</button>
     </div>
   </dialog>
   {% endif %}

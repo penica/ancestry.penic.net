@@ -30,13 +30,13 @@ Check off a step when its behavior has been verified. **P1** covers the current 
   - [x] Verify that Administrators can use both sections, Readers are denied direct access, and mail delivery failures leave the invitation link usable.
 - [x] **Sign in with a passkey**
   - [x] Let users add, name, and remove passkeys under **Account settings** after confirming their identity.
-  - [x] Add **Sign in with a passkey** at the canonical HTTPS origin using WebAuthn with user verification. Keep password sign-in and the existing two-step recovery flow available, including on the LAN address. [WebAuthn standard](https://www.w3.org/TR/webauthn-3/)
+  - [x] Add **Sign in with a passkey** at `https://ancestry.penic.org` using WebAuthn with user verification. Keep password sign-in and the existing two-step recovery flow available, including on the LAN address. [WebAuthn standard](https://www.w3.org/TR/webauthn-3/)
   - [x] Verify enrollment, sign-in, removal, and fallback on desktop and phone layouts for both Reader and Administrator accounts, using browser virtual authenticators.
 - [x] **Limit abusive requests and keep dependencies current**
   - [x] Update the affected cryptography dependency and run the existing authenticator and recovery-code checks.
   - [x] Apply sign-in and PDF limits and test that one user’s requests leave other family accounts usable.
   - [x] Add security-event logging for sign-ins and account changes. Keep credentials, tokens, and genealogy details out of the logs.
-  - [x] Verify the proxy chain passes a trustworthy visitor address. Confirm the public visitor address and verify that forged forwarding headers have no effect on the public and direct routes.
+  - [x] Verify the proxy chain passes a trustworthy visitor address. The public route delivered the visitor IP observed by Cloudflare. Forged forwarding headers had no effect through Cloudflare, through the direct proxy route, or on direct VM requests.
 - [x] **Back up comments with the rest of the reader state**
   - [x] Add the comments database to the VM backup routine.
   - [x] Restore the database into an isolated preview and verify comments still match their original tree and person.
@@ -73,44 +73,63 @@ Check off a step when its behavior has been verified. **P1** covers the current 
 
 ## Next priorities
 
-### 1. Publishing safety
+The order below reflects day-to-day use of the reader. Publishing safety is the highest priority for changes that affect the published tree.
 
-- [ ] **Validate the staged tree before Publish**
-  - [ ] Run the reader's search, chart, and record queries against the staged snapshot. Reject an incompatible snapshot before replacing the active tree.
-  - [ ] Compare stable RootsMagic identities with the published tree. Flag reused IDs and show which comments, follow-ups, shared charts, and registry links could be affected. Keep a link that needs review from silently opening a different person's record.
-- [ ] **Restore a publication and its NAS media together**
-  - [ ] Record the tree snapshot, changed media versions, and checksums in the publication history. Restore the matching media and snapshot together, with a preview of what will change.
-  - [ ] Add automated checks with disposable trees and media for incompatible schemas, reused IDs, stale previews, interrupted publication, and rollback.
+### 1. Family groups
 
-### 2. Mobile reader layout and pedigree cards
+- [x] **Add a Show family groups toggle to the existing pedigree**
+  - [x] Use a shared connector for each recorded parent group to show which children belong together. Place the marriage date and place beside that connector when recorded.
+  - [x] Keep groups separate when a parent has children with multiple partners. Show a single recorded parent where the other is unknown, and use the existing blue and plum card borders for recorded sex.
+  - [x] Preserve the starting person, open branches, zoom, and chart position when toggling. Check multiple partners and a missing parent on desktop and phone.
 
-- [ ] **Give the pedigree most of the phone screen**
-  - [ ] Keep **Search**, **Previous person**, and **Refresh** reachable from a compact toolbar in the normal and full-screen chart views. Group the less-used controls under **Chart tools**. Keep tree switching and the Account menu easy to find.
-  - [ ] Keep the horizontal pedigree. Let users pan the chart with one finger and reach **Fit to view**, zoom, and **Center** without scrolling away from the chart. Keep card links and **Expand branch** easy to tap separately.
-  - [ ] Use the available viewport height. At 390 × 844 with menus closed and the keyboard dismissed, aim to give the chart at least half of the initial screen. Check that opening and closing search or tools preserves the current chart position.
-- [ ] **Make records and account pages comfortable to use on phones**
-  - [ ] Check that person details, family links, citations, image previews, and the full record remain readable at phone widths. Keep the details panel’s **Close** control visible and return to the same chart and card when it closes.
-  - [ ] Check search results with the onscreen keyboard open, long names, tree switching, sign-in, Account settings, and administrator forms. Keep controls reachable and avoid horizontal scrolling outside the pedigree canvas.
-- [ ] **Verify on phones, tablets, and desktop**
-  - [ ] Test iPhone Safari and Android Chrome at narrow phone widths, including 320 and 390 px, plus a tablet width and desktop. Cover portrait, landscape, light and dark mode, and touch targets of at least 44 px.
-  - [ ] Verify search, branch expansion, **Previous person**, changing trees, details, image previews, and refresh with the same starting person, open branches, zoom, and scroll position where applicable. Update the usage and browser checks in the reader guides.
+### 2. Vertical pedigree view
+
+- [x] **Add an optional Vertical layout to the pedigree**
+  - [x] Add **Horizontal** and **Vertical** to the same pedigree page, with **Horizontal** as the default. Build this after **Show family groups**, starting with the desktop layout.
+  - [x] Place the starting person below their ancestors. Use the same family-group rules and chart controls in both layouts. When family groups are shown, place parents side by side, show their recorded marriage date and place between them, and group each set of children beneath the corresponding parents.
+  - [x] Preserve the starting person, open branches, and **Show family groups** setting when switching layouts. Center the new layout on the starting person. Verify switching in both directions on desktop and phone, including a family with multiple partnerships.
+
+### 3. Resume research
+
+- [x] **Save private named chart views**
+  - [x] Let readers save and reopen a starting person with open branches, chart options, zoom, and scroll position. Apply current tree permissions when opening a saved view.
+- [x] **Find saved follow-ups by person name**
+  - [x] Support name search alongside exact RootsMagic ID. Show the recorded names and IDs so readers can distinguish people with the same name.
+
+### 4. Registry linking
+
+- [x] **Link each named person in a church-book entry**
+  - [x] Add name and ID lookup in the registry app through the existing tree-scoped API. Keep the API key on the registry server. Save each link against the relevant person mention in the entry.
+  - [x] Store the tree slug, RootsMagic ID, and stable ID when available. Open the full record using the viewer's reader session and flag links for review when a merge changes or reuses an ID.
+  - [x] Add automated checks for the registry lookup, multiple people linked to one entry, wrong-tree requests, revoked keys, and record access with the viewer's own permissions.
+
+### 5. Card styling and A0 PDFs
+
 - [x] **Show recorded sex on web chart cards**
   - [x] Use a muted blue left border for men, muted plum for women, and a neutral border when sex is unknown or unrecorded. Use the value recorded in RootsMagic.
   - [x] Place a small **M** or **F** beside the RootsMagic ID so readers can distinguish the cards without relying on color. Keep the existing card backgrounds and starting-person highlight.
   - [x] Test a large pedigree on desktop and phone in light and dark mode. Check the labels at normal zoom and make sure the starting-person highlight and family branch colors are still easy to distinguish.
-- [ ] **Carry the treatment into the A0 PDFs after reviewing the web chart**
-  - [ ] Apply the same left borders and **M** or **F** labels to the compact cards. Check a grayscale print at 100% scale to verify the labels and RootsMagic IDs are legible.
+- [x] **Carry the treatment into the A0 PDFs after reviewing the web chart**
+  - [x] Apply the same left borders and **M** or **F** labels to the compact cards. Check a grayscale print at 100% scale to verify the labels and RootsMagic IDs are legible.
 
-### 3. Registry linking
+### 6. Mobile usability
 
-- [ ] **Link each named person in a church-book entry**
-  - [ ] Add name and ID lookup in the registry app through the existing tree-scoped API. Keep the API key on the registry server. Save each link against the relevant person mention in the entry.
-  - [ ] Store the tree slug, RootsMagic ID, and stable ID when available. Open the full record using the viewer's reader session and flag links for review when a merge changes or reuses an ID.
-  - [ ] Add automated checks for the registry lookup, multiple people linked to one entry, wrong-tree requests, revoked keys, and record access with the viewer's own permissions.
+- [x] **Give the pedigree most of the phone screen**
+  - [x] Keep **Search**, **Previous person**, and **Refresh** reachable from a compact toolbar in the normal and full-screen chart views. Group the less-used controls under **Chart tools**. Keep tree switching and the Account menu easy to find.
+  - [x] Keep the horizontal pedigree. Let users pan the chart with one finger and reach **Fit to view**, zoom, and **Center** without scrolling away from the chart. Keep card links and **Expand branch** easy to tap separately.
+  - [x] Use the available viewport height. At 390 × 844 with menus closed and the keyboard dismissed, aim to give the chart at least half of the initial screen. Check that opening and closing search or tools preserves the current chart position.
+- [x] **Make records and account pages comfortable to use on phones**
+  - [x] Check that person details, family links, citations, image previews, and the full record remain readable at phone widths. Keep the details panel’s **Close** control visible and return to the same chart and card when it closes.
+  - [x] Check search results with the onscreen keyboard open, long names, tree switching, sign-in, Account settings, and administrator forms. Keep controls reachable and avoid horizontal scrolling outside the pedigree canvas.
+- [x] **Verify on phones, tablets, and desktop**
+  - [x] Verified Chromium and WebKit with phone and tablet emulation at 320 and 390 px, plus tablet and desktop widths. Covered portrait, landscape, light and dark mode and 44 px toolbar targets. Physical iPhone and Android checks remain available as follow-up.
+  - [x] Verify search, branch expansion, **Previous person**, changing trees, details, image previews, and refresh with the same starting person, open branches, zoom, and scroll position where applicable. Update the usage and browser checks in the reader guides.
 
-### 4. Resume research
+### 7. Publishing safety
 
-- [ ] **Save private named chart views**
-  - [ ] Let readers save and reopen a starting person with open branches, chart options, zoom, and scroll position. Apply current tree permissions when opening a saved view.
-- [ ] **Find saved follow-ups by person name**
-  - [ ] Support name search alongside exact RootsMagic ID. Show the recorded names and IDs so readers can distinguish people with the same name.
+- [x] **Validate the staged tree before Publish**
+  - [x] Run the reader's search, chart, and record queries against the staged snapshot. Reject an incompatible snapshot before replacing the active tree.
+  - [x] Compare stable RootsMagic identities with the published tree. Flag reused IDs and show which comments, follow-ups, shared charts, and registry links could be affected. Keep a link that needs review from silently opening a different person's record.
+- [x] **Restore a publication and its NAS media together**
+  - [x] Record the tree snapshot, changed media versions, and checksums in the publication history. Restore the matching media and snapshot together, with a preview of what will change.
+  - [x] Add automated checks with disposable trees and media for incompatible schemas, reused IDs, stale previews, interrupted publication, and rollback.

@@ -5,11 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shutil
 import stat
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import TYPE_CHECKING, Final, NamedTuple
@@ -19,9 +17,9 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from typing import BinaryIO
 
-NAS_ROOT: Final = Path("/mnt/archive")
+NAS_ROOT: Final = Path("/mnt/registers-archive")
 NAS_MEDIA: Final = Path("RootsMagicReader/Media")
-PROJECT_MEDIA: Final = {"FamilyTrees": "family-trees", "Archive": "archive"}
+PROJECT_MEDIA: Final = {"Penic": "penic", "Ancestry": "ancestry"}
 BOOKS: Final = Path("Books")
 CHUNK_SIZE: Final = 1024 * 1024
 CACHE_LIMIT: Final = 8 * 1024 * 1024
@@ -168,7 +166,7 @@ def local_media(
         for source, target in PROJECT_MEDIA.items()
     )
     archive_roots = tuple(
-        (Path("/Volumes") / mount / "FamilyArchive" / prefix, prefix)
+        (Path("/Volumes") / mount / "DruzinskoDrevo" / prefix, prefix)
         for mount in ("home", "home-1")
         for prefix in (BOOKS, NAS_MEDIA)
     )
@@ -331,50 +329,6 @@ class StagedMedia:
     checks: tuple[MediaCheck, ...]
     changes: tuple[MediaChange, ...]
     directory: Path
-
-    @contextmanager
-    def install(self) -> Iterator[None]:
-        """Publish verified assets and restore old copies if database commit fails."""
-        if media_plan(self.root, self.checks) != self.changes:
-            raise MediaError(
-                "The NAS media changed during publication. Publish again to recheck it."
-            )
-        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
-        previous_root = self.root / "RootsMagicReader" / "PreviousMedia" / stamp
-        installed: list[tuple[Path, Path | None]] = []
-        committed = False
-        try:
-            for index, old_digest in self.changes:
-                check = self.checks[index]
-                destination = target_path(self.root, check)
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                backup = None
-                if old_digest is not None:
-                    backup = previous_root / Path(check.path).relative_to(NAS_MEDIA)
-                    if backup.resolve() != self.root.resolve() / backup.relative_to(
-                        self.root
-                    ):
-                        raise MediaError(
-                            "The NAS backup path contains a symbolic link."
-                        )
-                    backup.parent.mkdir(parents=True, exist_ok=True)
-                    with destination.open("rb") as source, backup.open("xb") as output:
-                        shutil.copyfileobj(source, output)
-                    if digest(backup) != old_digest:
-                        raise MediaError(
-                            f"Unable to verify the prior media copy: {check.path}"
-                        )
-                (self.directory / str(index)).replace(destination)
-                installed.append((destination, backup))
-            yield
-            committed = True
-        finally:
-            if not committed:
-                for destination, backup in reversed(installed):
-                    if backup is None:
-                        destination.unlink(missing_ok=True)
-                    else:
-                        backup.replace(destination)
 
 
 @contextmanager

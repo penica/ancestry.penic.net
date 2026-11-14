@@ -6,6 +6,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from time import time
 from typing import TYPE_CHECKING, Annotated
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Path, Query, Request, Security
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -27,7 +28,7 @@ from reader_api_keys import (
     retry_after,
 )
 from reader_audit import audit
-from store import PersonID, Record, connect, read_search_rows
+from store import PersonID, Record, connect, person_identity, read_search_rows
 from tree_catalog import available_trees
 
 if TYPE_CHECKING:
@@ -270,24 +271,27 @@ def integration_router(access: ReaderAccess) -> APIRouter:
         scoped = replace(selected, external=key.scope == "deceased")
         with connect(scoped.database) as db:
             rows, total = read_search_rows(db, q, limit, offset)
-            people = tuple(
-                PersonMatch(
-                    id=PersonID(row["id"]),
-                    unique_id=db.execute(
-                        "SELECT nullif(trim(UniqueID), '') FROM PersonTable WHERE PersonID = ?",
-                        (row["id"],),
-                    ).fetchone()[0],
-                    name=row["name"],
-                    birth_year=row["birth_year"],
-                    death_year=row["death_year"],
-                    record_path=scoped.url(f"/pedigree/people/{row['id']}/record"),
+            people = []
+            for row in rows:
+                person_id = PersonID(row["id"])
+                identity = person_identity(db, person_id)
+                path = f"/pedigree/people/{person_id}/record"
+                if identity:
+                    path += "?" + urlencode({"identity": identity})
+                people.append(
+                    PersonMatch(
+                        id=person_id,
+                        unique_id=identity,
+                        name=row["name"],
+                        birth_year=row["birth_year"],
+                        death_year=row["death_year"],
+                        record_path=scoped.url(path),
+                    )
                 )
-                for row in rows
-            )
         keys.record_use(key)
         return PersonMatches(
             tree_slug=key.tree_slug,
-            people=people,
+            people=tuple(people),
             total=total,
             limit=limit,
             offset=offset,

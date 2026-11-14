@@ -86,14 +86,14 @@ CITATIONS: Final = """
 DIRECTORY_FILTER: Final = f"""
     WITH people AS ({NAME})
     SELECT * FROM people
-    WHERE json_array_length(:terms) = 0 OR CAST(id AS TEXT) = :query OR EXISTS (
+    WHERE json_array_length(:terms) = 0 OR (CASE WHEN :exact THEN CAST(id AS TEXT) = :query ELSE EXISTS (
         SELECT 1 FROM NameTable n
         WHERE n.OwnerID = people.id AND NOT EXISTS (
             SELECT 1 FROM json_each(:terms) t
             WHERE instr(fold(join_name(n.Given, n.Surname, n.Prefix, n.Suffix,
                                        n.Nickname)), t.value) = 0
         )
-    )
+    ) END)
 """  # noqa: S608
 # Only the static NAME query is interpolated; input is bound by SQLite.
 PERSON: Final = f"""
@@ -388,10 +388,8 @@ def read_search_rows(
     db: sqlite3.Connection, query: str, limit: int, offset: int
 ) -> tuple[tuple[sqlite3.Row, ...], int]:
     """Search within the caller's current snapshot."""
-    term = re.sub(r"^#(?=[0-9]+$)", "", query.strip())
     params = {
-        "terms": json.dumps(fold(term).split()),
-        "query": term,
+        **directory_query(query),
         "limit": limit,
         "offset": offset,
     }
@@ -404,6 +402,34 @@ def read_search_rows(
         )
     )
     return rows, int(total_row[0])
+
+
+def directory_query(query: str) -> dict[str, str | bool]:
+    term = re.sub(r"^#(?=[0-9]+$)", "", query.strip())
+    return {
+        "query": term,
+        "terms": json.dumps(fold(term).split()),
+        "exact": term.isascii() and term.isdigit(),
+    }
+
+
+def matching_people(path: DatabasePath, query: str) -> tuple[PersonID, ...]:
+    """Find matching IDs without dropping matches after the first search page."""
+    with connect(path) as db:
+        rows = db.execute(
+            f"SELECT id FROM ({DIRECTORY_FILTER})",
+            directory_query(query),  # noqa: S608
+        )
+        return tuple(PersonID(row["id"]) for row in rows)
+
+
+def person_identity(db: sqlite3.Connection, person_id: PersonID) -> str | None:
+    """Read the RootsMagic identity in the current authorized snapshot."""
+    row = db.execute(
+        "SELECT nullif(trim(UniqueID), '') FROM PersonTable WHERE PersonID = ?",
+        (person_id,),
+    ).fetchone()
+    return row[0] if row else None
 
 
 def person_names(

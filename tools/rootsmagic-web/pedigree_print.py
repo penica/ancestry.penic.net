@@ -32,6 +32,10 @@ INK: Final = HexColor("#182e2a")
 MUTED: Final = HexColor("#435852")
 LINE: Final = HexColor("#879893")
 ACCENT: Final = HexColor("#216453")
+SEX_STYLE: Final = {
+    "male": ("M", HexColor("#496f98")),
+    "female": ("F", HexColor("#8b587d")),
+}
 
 
 class PrintLayoutError(ValueError):
@@ -98,6 +102,23 @@ def fact_text(fact: Fact | None, fallback: str) -> str:
     )
 
 
+def card_id_label(person_id: int, sex: str | None) -> str:
+    style = SEX_STYLE.get(sex or "")
+    return f"#{person_id}  {style[0]}" if style else f"#{person_id}"
+
+
+def draw_sex_edge(
+    canvas: Canvas, x: float, y: float, height: float, radius: float, sex: str | None
+) -> None:
+    style = SEX_STYLE.get(sex or "")
+    if style:
+        canvas.setStrokeColor(style[1])
+        canvas.setLineWidth(2.3)
+        canvas.line(
+            x + 1.15, y - height / 2 + radius, x + 1.15, y + height / 2 - radius
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class Card:
     """Measured text for a single occurrence, including repeated ancestors."""
@@ -117,7 +138,14 @@ class Card:
         relationship: str = "",
     ) -> Card:
         """Measure wrapped names and vital facts before placing the card."""
-        names = wrap(person.name, CARD - 23 * mm, ("PedigreeBold", 12.36))
+        identity_width = pdfmetrics.stringWidth(
+            card_id_label(person.id, person.sex), "PedigreeArial", 8
+        )
+        names = wrap(
+            person.name,
+            CARD - max(23 * mm, 11 * mm + identity_width),
+            ("PedigreeBold", 12.36),
+        )
         fact_width = CARD - 8 * mm
         fact_font = ("PedigreeArial", 8.73)
         facts = wrap(
@@ -414,10 +442,13 @@ def draw_card(canvas: Canvas, position: Position) -> None:
     canvas.setStrokeColor(ACCENT if card.highlighted else LINE)
     canvas.setLineWidth(0.8 if card.highlighted else 0.6)
     canvas.roundRect(x, y - card.height / 2, CARD, card.height, 2.18 * mm, fill=1)
+    draw_sex_edge(canvas, x, y, card.height, 2.18 * mm, card.person.sex)
     cursor = y + card.height / 2 - 14
     canvas.setFillColor(MUTED)
     canvas.setFont("PedigreeArial", 8)
-    canvas.drawRightString(x + CARD - 4 * mm, cursor, f"#{card.person.id}")
+    canvas.drawRightString(
+        x + CARD - 4 * mm, cursor, card_id_label(card.person.id, card.person.sex)
+    )
     canvas.setFillColor(INK)
     canvas.setFont("PedigreeBold", 12.36)
     for line in card.names:

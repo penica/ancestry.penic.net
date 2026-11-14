@@ -46,3 +46,45 @@ shareDialog.addEventListener("close", () => {
   shareRequest?.abort();
   shareButton.focus();
 });
+
+const saveChartDialog = document.querySelector("#save-chart-dialog");
+const saveChartForm = document.querySelector("#save-chart-form");
+const saveChartName = document.querySelector("#save-chart-name");
+const saveChartStatus = document.querySelector("#save-chart-status");
+const savedChartLink = document.querySelector("#saved-chart-link");
+let savedChartDraft;
+
+saveChartButton.addEventListener("click", () => {
+  if (!chartData || viewport.getAttribute("aria-busy") === "true") return;
+  savedChartDraft = { person_id: chartData.root.person.id, view: captureChartView() };
+  saveChartForm.reset();
+  saveChartForm.hidden = false;
+  saveChartStatus.textContent = "";
+  savedChartLink.hidden = true;
+  saveChartDialog.showModal();
+});
+
+saveChartForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const submit = event.submitter;
+  submit.disabled = true;
+  saveChartStatus.textContent = "Saving chart…";
+  try {
+    const result = await requestJSON(`${API}/saved-charts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": commentsToken },
+      body: JSON.stringify({ ...savedChartDraft, name: saveChartName.value }),
+    });
+    savedChartLink.href = result.path;
+    savedChartLink.hidden = false;
+    saveChartForm.hidden = true;
+    saveChartStatus.textContent = "Chart saved privately.";
+    if (saveChartDialog.open) savedChartLink.focus();
+  } catch (error) {
+    saveChartStatus.textContent = error instanceof PedigreeRequestError ? error.message : "The chart could not be saved. Try again.";
+  } finally {
+    submit.disabled = false;
+  }
+});
+
+saveChartDialog.addEventListener("close", () => saveChartButton.focus());

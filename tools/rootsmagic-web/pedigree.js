@@ -17,6 +17,17 @@ const treeStatus = document.querySelector("#pedigree-status");
 const treeCount = document.querySelector("#reader-tree-count");
 const countFormat = new Intl.NumberFormat("en");
 const shareButton = document.querySelector("#pedigree-share");
+const saveChartButton = document.querySelector("#pedigree-save-chart");
+const phoneLayout = matchMedia("(max-width: 43rem), (max-width: 56rem) and (max-height: 32rem) and (orientation: landscape)");
+const phoneTools = document.querySelector("#pedigree-phone-tools");
+const toolbar = document.querySelector(".page-header .controls");
+const extraActions = [shareButton, document.querySelector("#pedigree-publish"), document.querySelector("#pedigree-reset")].filter(Boolean);
+function positionExtraActions() {
+  const target = phoneLayout.matches ? phoneTools : toolbar;
+  for (const action of extraActions) target.append(action);
+}
+phoneLayout.addEventListener("change", positionExtraActions);
+positionExtraActions();
 const searchForm = document.querySelector("#pedigree-search");
 const query = document.querySelector("#pedigree-query");
 const searchPanel = document.querySelector("#search-panel");
@@ -46,6 +57,8 @@ const commentDate = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", ti
 const initialDepth = document.querySelector("#pedigree-depth");
 const childrenToggle = document.querySelector("#pedigree-show-children");
 const siblingsToggle = document.querySelector("#pedigree-show-siblings");
+const familyGroupsToggle = document.querySelector("#pedigree-family-groups");
+const layoutSelect = document.querySelector("#pedigree-layout");
 const zoomOut = document.querySelector("#pedigree-zoom-out");
 const zoomIn = document.querySelector("#pedigree-zoom-in");
 const fitView = document.querySelector("#pedigree-fit");
@@ -102,6 +115,8 @@ function captureChartView() {
     depth: initialDepth.value,
     children: childrenToggle.checked,
     siblings: siblingsToggle.checked,
+    familyGroups: familyGroupsToggle.checked,
+    layout: layoutSelect.value,
     gaps: gapToggle.checked,
     scale: chartScale,
     scrollLeft: viewport.scrollLeft,
@@ -339,7 +354,15 @@ function attachBranchControl(graph, record, expanded, toggle) {
 function rootGraph(stage, data) {
   const root = stageNode(stage, data.root.person, "Starting person", null, 1, String(data.root.person.id));
   root.card.setAttribute("aria-current", "true");
-  const partnerTrees = visiblePartnerRoots(data).map((record) => ({
+  const partnerRecords = new Map(visiblePartnerRoots(data).map((record) => [record.person.id, record]));
+  if (familyGroupsToggle.checked && childrenToggle.checked) {
+    for (const { partner } of data.child_families ?? []) {
+      if (partner && !partnerRecords.has(partner.id)) {
+        partnerRecords.set(partner.id, { person: partner, key: partnerRootKey(partner.id), parents: [] });
+      }
+    }
+  }
+  const partnerTrees = [...partnerRecords.values()].map((record) => ({
     graph: stageNode(stage, record.person, "Partner", null, 1, record.key), record,
   }));
   const siblings = siblingsToggle.checked ? data.siblings.map(({ person, relationship }) => (
@@ -385,13 +408,189 @@ function rootGraph(stage, data) {
   return { root, partners: partnerTrees.map(({ graph }) => graph), siblings, levels };
 }
 
-function packColumn(column, gap) {
+function drawFamilyConnector(paths, children, parents, jointX, jointY, branch, familyId) {
+  const path = document.createElementNS(SVG, "path");
+  path.setAttribute("class", "family-connector");
+  if (branch !== null) path.classList.add(`branch-${branch}`);
+  if (familyId !== undefined) path.dataset.familyId = String(familyId);
+  const ends = [...children, ...parents];
+  const ys = ends.map(({ y }) => y).concat(jointY);
+  const arms = ends.map(({ x, y }) => `M ${x} ${y} H ${jointX}`);
+  path.setAttribute("d", [`M ${jointX} ${Math.min(...ys)} V ${Math.max(...ys)}`, ...arms].join(" "));
+  paths.append(path);
+}
+
+function verticalLine(paths, from, to, middle, branch, familyId) {
+  const line = document.createElementNS(SVG, "path");
+  if (branch !== null) line.classList.add(`branch-${branch}`);
+  if (familyId !== undefined) {
+    line.classList.add("family-connector");
+    line.dataset.familyId = String(familyId);
+  }
+  line.setAttribute("d", `M ${from.x} ${from.y} V ${middle} H ${to.x} V ${to.y}`);
+  paths.append(line);
+  return line;
+}
+
+function drawVerticalChart(stage, paths, graph, columns, childGroups, inset, cardWidth, rem, rowGap) {
+  stage.classList.add("vertical-chart");
+  const { root, partners, siblings, levels } = graph;
+  const children = childGroups.flatMap(({ nodes }) => nodes);
+  const rows = [...levels];
+  rows[0] = [...partners, root, ...siblings];
+  const slot = cardWidth + rowGap * 2;
+  const grouped = familyGroupsToggle.checked;
+  for (const row of rows) {
+    for (const node of row) node.height = node.card.offsetHeight + node.actions.offsetHeight;
+  }
+  root.x = 0;
+  partners.forEach((node, index) => { node.x = (index - partners.length) * slot; });
+  siblings.forEach((node, index) => { node.x = (index + 1) * slot; });
+  for (let level = 0; level + 1 < levels.length; level++) {
+    const next = levels[level + 1];
+    const families = [...levels[level]].sort((a, b) => a.x - b.x);
+    const ordered = families.flatMap((node) => {
+      node.parents.forEach((parent, index) => {
+        parent.y = node.x + (index - (node.parents.length - 1) / 2) * slot;
+        parent.heightOnRow = cardWidth;
+      });
+      return node.parents;
+    });
+    // The same spacing solver also packs cards across each generation row.
+    packColumn(ordered, rowGap * 2, (node) => node.heightOnRow);
+    for (const node of next) node.x = node.y;
+  }
+  let childLeft = root.x - (children.length - 1) * slot / 2;
+  for (const group of childGroups) {
+    group.label.style.width = `${Math.max(cardWidth, group.nodes.length * slot - rowGap * 2)}px`;
+    group.labelHeight = group.label.offsetHeight;
+    for (const node of group.nodes) {
+      node.height = node.card.offsetHeight + node.actions.offsetHeight;
+      node.x = childLeft;
+      childLeft += slot;
+    }
+  }
+  const all = [...rows.flat(), ...children];
+  const left = Math.min(...all.map((node) => node.x)) - cardWidth / 2 - inset;
+  const right = Math.max(...all.map((node) => node.x)) + cardWidth / 2 + inset;
+  const center = (node) => node.x - left;
+  const position = (node, y) => {
+    node.y = y;
+    node.card.style.left = `${center(node) - cardWidth / 2}px`;
+    node.card.style.top = `${y}px`;
+    node.actions.style.left = node.card.style.left;
+    node.actions.style.top = `${y + node.card.offsetHeight}px`;
+  };
+  const labels = new Map();
+  for (const node of levels.flat()) {
+    if (!node.marriage || node.parents.length < 2) continue;
+    const label = element("span", "marriage", factText(node.marriage));
+    label.style.width = `${cardWidth}px`;
+    stage.append(label);
+    labels.set(node, label);
+  }
+  const partnershipLabels = new Map();
+  for (const node of partners) {
+    const marriages = graph.partnerMarriages?.[node.person.id];
+    if (!marriages?.length || (grouped && childGroups.some((group) => group.partner?.id === node.person.id))) continue;
+    const label = element("div", "marriage partner-marriage", marriages.map(factText).join(" · "));
+    label.style.width = `${cardWidth}px`;
+    stage.append(label);
+    partnershipLabels.set(node, label);
+  }
+  const rowTop = [];
+  const rowEnd = [];
+  let y = inset;
+  for (let level = rows.length - 1; level >= 0; level--) {
+    rowTop[level] = y;
+    for (const node of rows[level]) position(node, y);
+    rowEnd[level] = y + Math.max(...rows[level].map((node) => node.height));
+    if (level > 0) {
+      const height = Math.max(0, ...levels[level - 1].map((node) => labels.get(node)?.offsetHeight ?? 0));
+      y = rowEnd[level] + height + rowGap * 3;
+    }
+  }
+  const peerTop = root.y;
+  let height = rowEnd[0] + inset;
+  const partnerBand = Math.max(0, ...[...partnershipLabels.values()].map((label) => label.offsetHeight));
+  if (partners.length) {
+    for (const [index, partner] of partners.entries()) {
+      const middle = rowEnd[0] + rowGap + index * rem * 0.375;
+      const connection = verticalLine(paths,
+        { x: center(root), y: root.y + root.height },
+        { x: center(partner), y: partner.y + partner.height }, middle, null);
+      connection.classList.add("partner-connector");
+      const label = partnershipLabels.get(partner);
+      if (!label) continue;
+      const adjacent = partners[index + 1] ?? root;
+      label.style.left = `${(center(partner) + center(adjacent)) / 2}px`;
+      label.style.top = `${middle + label.offsetHeight / 2 + rowGap / 4}px`;
+    }
+    height += rowGap * 2 + partnerBand + partners.length * rem * 0.375;
+  }
+  for (const [level, nodes] of levels.entries()) {
+    for (const node of nodes) {
+      if (!node.parents.length) continue;
+      const middle = rowEnd[level + 1] + (rowTop[level] - rowEnd[level + 1]) / 2;
+      const joint = node.parents.reduce((sum, parent) => sum + center(parent), 0) / node.parents.length;
+      const child = { x: center(node), y: node.y };
+      if (grouped && node.parents.length > 1) {
+        const joined = [node, ...(node === root ? graph.fullSiblings : [])];
+        joined.forEach((member) => verticalLine(paths, { x: center(member), y: member.y },
+          { x: joint, y: middle }, middle, node.branch));
+        node.parents.forEach((parent) => verticalLine(paths, { x: joint, y: middle },
+          { x: center(parent), y: parent.y + parent.height }, middle, parent.branch));
+      } else {
+        node.parents.forEach((parent) => verticalLine(paths, child,
+          { x: center(parent), y: parent.y + parent.height }, middle, parent.branch));
+      }
+      const label = labels.get(node);
+      if (label) {
+        label.style.left = `${joint}px`;
+        label.style.top = `${middle}px`;
+      }
+    }
+  }
+  if (children.length) {
+    const headerTop = height + rowGap * 2;
+    const childTop = headerTop + Math.max(...childGroups.map((group) => group.labelHeight)) + rowGap;
+    for (const [index, group] of childGroups.entries()) {
+      const joint = group.nodes.reduce((sum, child) => sum + center(child), 0) / group.nodes.length;
+      const middle = height + rowGap * (1 + index / childGroups.length);
+      const branch = childGroups.length > 1 ? index % 4 : null;
+      group.label.style.left = `${center(group.nodes[0]) - cardWidth / 2}px`;
+      group.label.style.top = `${headerTop}px`;
+      const parents = [root, ...partners.filter((partner) => partner.person.id === group.partner?.id)];
+      for (const parent of parents) {
+        const port = (index - (childGroups.length - 1) / 2) * Math.min(rem / 2, cardWidth / childGroups.length);
+        verticalLine(paths, { x: center(parent) + port, y: peerTop + parent.height },
+          { x: joint, y: middle }, middle, branch, group.id);
+      }
+      for (const child of group.nodes) {
+        position(child, childTop);
+        verticalLine(paths, { x: joint, y: middle }, { x: center(child), y: childTop },
+          middle, branch, group.id);
+      }
+    }
+    height = childTop + Math.max(...children.map((node) => node.height)) + inset;
+  }
+  const first = children.length ? 1 : 0;
+  columns.forEach(({ name, nodes }, index) => {
+    const heading = element("span", "generation", name);
+    heading.style.left = `${inset / 3}px`;
+    heading.style.top = `${(index < first ? nodes[0].y : rowTop[index - first]) - rem}px`;
+    stage.append(heading);
+  });
+  return { width: Math.max(right - left, cardWidth + inset * 2), height, center };
+}
+
+function packColumn(column, gap, size = (node) => node.height) {
   // Subtract each card's minimum offset, then merge adjacent runs whose
   // ideal positions would overlap. This keeps the parent order intact.
   let offset = 0;
   const runs = [];
   for (const [index, node] of column.entries()) {
-    if (index) offset += (column[index - 1].height + node.height) / 2 + gap;
+    if (index) offset += (size(column[index - 1]) + size(node)) / 2 + gap;
     node.offset = offset;
     runs.push({ start: index, count: 1, sum: node.y - offset });
     while (runs.length > 1) {
@@ -480,7 +679,10 @@ function displayGraph(data, moveFocus, showChildrenColumn = false) {
     stage.append(label);
     const nodes = family.children.map((person) =>
       stageNode(stage, person, "Child", null, 0, `child/${family.id}/${person.id}`));
-    return { label, nodes, partner: family.partner };
+    if (familyGroupsToggle.checked && family.marriage) {
+      label.append(element("span", "child-family-marriage", factText(family.marriage)));
+    }
+    return { label, nodes, partner: family.partner, id: family.id };
   }) : [];
   const children = childGroups.flatMap(({ nodes }) => nodes);
   const rootColumn = children.length ? 1 : 0;
@@ -497,118 +699,152 @@ function displayGraph(data, moveFocus, showChildrenColumn = false) {
   const columnWidth = cardWidth + gutter;
   const rowGap = cssSize("--row-gap");
   const partnerPortOffset = rem * 0.375;
-  for (const node of partners) {
-    const marriages = data.partner_marriages?.[node.person.id];
-    if (!marriages?.length) continue;
-    const label = element("div", "marriage partner-marriage");
-    label.dataset.partnerId = String(node.person.id);
-    label.style.width = `${gutter - rem * 1.5}px`;
-    for (const fact of marriages) label.append(element("div", "", factText(fact)));
-    stage.append(label);
-    node.partnerMarriage = label;
-  }
-  const partnershipGutter = partners.some((node) => node.partnerMarriage) ? gutter : 0;
-  layoutGraph(graph, rowGap, partnerPortOffset);
-  for (const child of children) child.height = child.card.offsetHeight + child.actions.offsetHeight;
-  for (const group of childGroups) {
-    group.height = group.label.offsetHeight + rowGap
-      + group.nodes.reduce((height, node) => height + node.height + rowGap, 0);
-  }
-  let childTop = root.y - childGroups.reduce((height, group) => height + group.height, 0) / 2;
-  for (const group of childGroups) {
-    group.top = childTop;
-    childTop += group.label.offsetHeight + rowGap;
-    for (const child of group.nodes) {
-      child.y = childTop + child.height / 2;
-      childTop += child.height + rowGap;
+  const vertical = layoutSelect.value === "vertical";
+  let verticalLayout;
+  let graphWidth;
+  let graphHeight;
+  let positionX;
+  let positionY;
+  let partnershipGutter = 0;
+  if (vertical) {
+    ruler.hidden = true;
+    graph.partnerMarriages = data.partner_marriages;
+    graph.fullSiblings = siblings.filter((_, index) => data.siblings[index].shares_parents);
+    verticalLayout = drawVerticalChart(stage, paths, graph, columns, childGroups, inset, cardWidth, rem, rowGap);
+    graphWidth = verticalLayout.width;
+    graphHeight = verticalLayout.height;
+  } else {
+    for (const node of partners) {
+      const marriages = data.partner_marriages?.[node.person.id];
+      if (!marriages?.length || (familyGroupsToggle.checked && childGroups.some((group) => group.partner?.id === node.person.id))) continue;
+      const label = element("div", "marriage partner-marriage");
+      label.dataset.partnerId = String(node.person.id);
+      label.style.width = `${gutter - rem * 1.5}px`;
+      for (const fact of marriages) label.append(element("div", "", factText(fact)));
+      stage.append(label);
+      node.partnerMarriage = label;
+    }
+    partnershipGutter = partners.some((node) => node.partnerMarriage) ? gutter : 0;
+    layoutGraph(graph, rowGap, partnerPortOffset);
+    for (const child of children) child.height = child.card.offsetHeight + child.actions.offsetHeight;
+    for (const group of childGroups) {
+      group.height = group.label.offsetHeight + rowGap
+        + group.nodes.reduce((height, node) => height + node.height + rowGap, 0);
+    }
+    let childTop = root.y - childGroups.reduce((height, group) => height + group.height, 0) / 2;
+    for (const group of childGroups) {
+      group.top = childTop;
+      childTop += group.label.offsetHeight + rowGap;
+      for (const child of group.nodes) {
+        child.y = childTop + child.height / 2;
+        childTop += child.height + rowGap;
+      }
+    }
+
+    const cards = [...levels.flat(), ...siblings, ...children];
+    const top = Math.min(...cards.map((node) => node.y - node.height / 2), ...childGroups.map((group) => group.top));
+    const bottom = Math.max(...cards.map((node) => node.y + node.height / 2));
+    graphWidth = inset * 2 + cardWidth + (columns.length - 1) * columnWidth + partnershipGutter;
+    graphHeight = bottom - top + inset * 2;
+    positionX = (column) => inset + column * columnWidth + (column >= rootColumn ? partnershipGutter : 0);
+    positionY = (node) => inset + node.y - top;
+    const cardY = (node) => positionY(node) - node.actions.offsetHeight / 2;
+
+    function placeCard(node, column) {
+      const x = positionX(column);
+      const y = positionY(node) - node.height / 2;
+      node.card.style.left = `${x}px`;
+      node.card.style.top = `${y}px`;
+      node.actions.style.left = `${x}px`;
+      node.actions.style.top = `${y + node.card.offsetHeight}px`;
+    }
+    for (const sibling of siblings) placeCard(sibling, rootColumn);
+    if (partners.length) {
+      const x = positionX(rootColumn);
+      const joint = partnershipGutter ? x - partnershipGutter + rem * 0.5 : x - inset / 2;
+      const offset = partnershipGutter ? partnerPortOffset : 0;
+      const rootY = cardY(root) - offset;
+      let previousY = rootY;
+      for (const node of partners) {
+        const y = cardY(node) - offset;
+        const label = node.partnerMarriage;
+        if (label) {
+          label.style.left = `${joint + rem * 0.5}px`;
+          label.style.top = `${(previousY + y) / 2}px`;
+        }
+        previousY = y;
+      }
+      const arms = partners.slice(0, -1).map((node) => `M ${joint} ${cardY(node) - offset} H ${x}`);
+      const connection = document.createElementNS(SVG, "path");
+      connection.setAttribute("class", "partner-connector");
+      connection.setAttribute("d", [`M ${x} ${rootY} H ${joint} V ${previousY} H ${x}`, ...arms].join(" "));
+      paths.append(connection);
+    }
+    for (const [index, group] of childGroups.entries()) {
+      group.label.style.left = `${positionX(0)}px`;
+      group.label.style.top = `${inset + group.top - top}px`;
+      const fromX = positionX(0) + cardWidth;
+      const jointX = fromX + gutter * 0.42;
+      const jointY = (cardY(group.nodes[0]) + cardY(group.nodes.at(-1))) / 2;
+      const branch = childGroups.length > 1 ? index % 4 : null;
+      const parents = [root, ...partners.filter((node) => node.person.id === group.partner?.id)];
+      const rootX = positionX(rootColumn);
+      if (familyGroupsToggle.checked) {
+        for (const child of group.nodes) placeCard(child, 0);
+        const rootPort = cardY(root) + (index - (childGroups.length - 1) / 2)
+          * Math.min(rem * 0.375, root.card.offsetHeight / childGroups.length);
+        drawFamilyConnector(paths,
+          group.nodes.map((child) => ({ x: fromX, y: cardY(child) })),
+          parents.map((parent) => ({ x: rootX, y: parent === root ? rootPort : cardY(parent) })),
+          fromX + gutter * (0.35 + 0.35 * index / childGroups.length), jointY, branch, group.id);
+        continue;
+      }
+      for (const child of group.nodes) {
+        placeCard(child, 0);
+        paths.append(connector(fromX, cardY(child), jointX, jointY, branch));
+      }
+      for (const parent of parents) {
+        const line = connector(jointX, jointY, rootX - partnershipGutter, cardY(parent), branch);
+        if (partnershipGutter) line.setAttribute("d", `${line.getAttribute("d")} H ${rootX}`);
+        paths.append(line);
+      }
+    }
+
+    for (const [levelIndex, level] of levels.entries()) {
+      const column = levelIndex + rootColumn;
+      for (const node of level) {
+        placeCard(node, column);
+        const fromX = positionX(column) + cardWidth;
+        const toX = positionX(column + 1);
+        const fromY = cardY(node);
+        if (familyGroupsToggle.checked && node.parents.length > 1) {
+          const shared = node === root ? siblings.filter((_, index) =>
+            data.siblings[index].shares_parents) : [];
+          drawFamilyConnector(paths,
+            [node, ...shared].map((child) => ({ x: fromX, y: cardY(child) })),
+            node.parents.map((parent) => ({ x: toX, y: cardY(parent) })),
+            (fromX + toX) / 2, fromY, node.branch);
+        } else {
+          for (const parent of node.parents) {
+            paths.append(connector(fromX, fromY, toX, cardY(parent), parent.branch));
+          }
+        }
+        if (node.marriage && node.parents.length > 1) {
+          const label = element("span", "marriage", factText(node.marriage));
+          const firstY = cardY(node.parents[0]);
+          const lastY = cardY(node.parents.at(-1));
+          label.style.left = `${fromX + rem * 0.75}px`;
+          label.style.width = `${gutter - rem * 1.5}px`;
+          label.style.top = `${(firstY + lastY) / 2}px`;
+          stage.append(label);
+        }
+      }
     }
   }
-
-  const cards = [...levels.flat(), ...siblings, ...children];
-  const top = Math.min(...cards.map((node) => node.y - node.height / 2), ...childGroups.map((group) => group.top));
-  const bottom = Math.max(...cards.map((node) => node.y + node.height / 2));
-  const graphWidth = inset * 2 + cardWidth + (columns.length - 1) * columnWidth + partnershipGutter;
-  const graphHeight = bottom - top + inset * 2;
-  const positionX = (column) => inset + column * columnWidth + (column >= rootColumn ? partnershipGutter : 0);
-  const positionY = (node) => inset + node.y - top;
-  const cardY = (node) => positionY(node) - node.actions.offsetHeight / 2;
-
   stage.style.width = `${graphWidth}px`;
   stage.style.height = `${graphHeight}px`;
   paths.setAttribute("width", String(graphWidth));
   paths.setAttribute("height", String(graphHeight));
-
-  function placeCard(node, column) {
-    const x = positionX(column);
-    const y = positionY(node) - node.height / 2;
-    node.card.style.left = `${x}px`;
-    node.card.style.top = `${y}px`;
-    node.actions.style.left = `${x}px`;
-    node.actions.style.top = `${y + node.card.offsetHeight}px`;
-  }
-  for (const sibling of siblings) placeCard(sibling, rootColumn);
-  if (partners.length) {
-    const x = positionX(rootColumn);
-    const joint = partnershipGutter ? x - partnershipGutter + rem * 0.5 : x - inset / 2;
-    const offset = partnershipGutter ? partnerPortOffset : 0;
-    const rootY = cardY(root) - offset;
-    let previousY = rootY;
-    for (const node of partners) {
-      const y = cardY(node) - offset;
-      const label = node.partnerMarriage;
-      if (label) {
-        label.style.left = `${joint + rem * 0.5}px`;
-        label.style.top = `${(previousY + y) / 2}px`;
-      }
-      previousY = y;
-    }
-    const arms = partners.slice(0, -1).map((node) => `M ${joint} ${cardY(node) - offset} H ${x}`);
-    const connection = document.createElementNS(SVG, "path");
-    connection.setAttribute("class", "partner-connector");
-    connection.setAttribute("d", [`M ${x} ${rootY} H ${joint} V ${previousY} H ${x}`, ...arms].join(" "));
-    paths.append(connection);
-  }
-  for (const [index, group] of childGroups.entries()) {
-    group.label.style.left = `${positionX(0)}px`;
-    group.label.style.top = `${inset + group.top - top}px`;
-    const fromX = positionX(0) + cardWidth;
-    const jointX = fromX + gutter * 0.42;
-    const jointY = (cardY(group.nodes[0]) + cardY(group.nodes.at(-1))) / 2;
-    const branch = childGroups.length > 1 ? index % 4 : null;
-    for (const child of group.nodes) {
-      placeCard(child, 0);
-      paths.append(connector(fromX, cardY(child), jointX, jointY, branch));
-    }
-    const parents = [root, ...partners.filter((node) => node.person.id === group.partner?.id)];
-    const rootX = positionX(rootColumn);
-    for (const parent of parents) {
-      const line = connector(jointX, jointY, rootX - partnershipGutter, cardY(parent), branch);
-      if (partnershipGutter) line.setAttribute("d", `${line.getAttribute("d")} H ${rootX}`);
-      paths.append(line);
-    }
-  }
-
-  for (const [levelIndex, level] of levels.entries()) {
-    const column = levelIndex + rootColumn;
-    for (const node of level) {
-      placeCard(node, column);
-      const fromX = positionX(column) + cardWidth;
-      const toX = positionX(column + 1);
-      const fromY = cardY(node);
-      for (const parent of node.parents) {
-        paths.append(connector(fromX, fromY, toX, cardY(parent), parent.branch));
-      }
-      if (node.marriage && node.parents.length > 1) {
-        const label = element("span", "marriage", factText(node.marriage));
-        const firstY = cardY(node.parents[0]);
-        const lastY = cardY(node.parents.at(-1));
-        label.style.left = `${fromX + rem * 0.75}px`;
-        label.style.width = `${gutter - rem * 1.5}px`;
-        label.style.top = `${(firstY + lastY) / 2}px`;
-        stage.append(label);
-      }
-    }
-  }
   rootHeading.textContent = root.person.name;
   const ancestorCount = new Set(levels.slice(1).flat()
     .filter((node) => node.branch !== null).map((node) => node.person.id)).size;
@@ -644,6 +880,8 @@ function displayGraph(data, moveFocus, showChildrenColumn = false) {
   centerButton.disabled = false;
   childrenToggle.disabled = false;
   siblingsToggle.disabled = false;
+  familyGroupsToggle.disabled = false;
+  layoutSelect.disabled = false;
   childrenStatus.hidden = !childrenToggle.checked || children.length > 0;
   childrenStatus.textContent = childrenStatus.hidden ? "" : "No recorded children";
   childrenToggle.onchange = () => {
@@ -652,6 +890,16 @@ function displayGraph(data, moveFocus, showChildrenColumn = false) {
   };
   function goToGeneration() {
     const column = Number(generationSelect.value);
+    if (verticalLayout) {
+      const nodes = columns[column].nodes;
+      const middle = (viewport.scrollLeft + viewport.clientWidth / 2 - stageOffset) / chartScale;
+      const nearest = nodes.reduce((closest, node) => (
+        Math.abs(verticalLayout.center(node) - middle) < Math.abs(verticalLayout.center(closest) - middle) ? node : closest
+      ));
+      viewport.scrollTo(verticalLayout.center(nearest) * chartScale + stageOffset - viewport.clientWidth / 2,
+        (nearest.y - inset) * chartScale);
+      return;
+    }
     const left = positionX(column) - inset - (column === rootColumn ? partnershipGutter : 0);
     viewport.scrollLeft = left * chartScale;
     const nodes = columns[column].nodes;
@@ -672,6 +920,12 @@ function displayGraph(data, moveFocus, showChildrenColumn = false) {
   }
   generationSelect.onchange = goToGeneration;
   function centerStartingPerson() {
+    if (verticalLayout) {
+      viewport.scrollTo(verticalLayout.center(root) * chartScale + stageOffset - viewport.clientWidth / 2,
+        (root.y + root.card.offsetHeight / 2) * chartScale - viewport.clientHeight / 2);
+      generationSelect.value = String(rootColumn);
+      return;
+    }
     const rootPosition = parseFloat(getComputedStyle(stage).getPropertyValue("--root-position"));
     const centerX = positionX(rootColumn) + (cardWidth - partnershipGutter) / 2;
     viewport.scrollLeft = Math.max(0, centerX * chartScale - viewport.clientWidth / 2);
@@ -684,7 +938,7 @@ function displayGraph(data, moveFocus, showChildrenColumn = false) {
     );
     generationSelect.value = String(rootColumn);
   }
-  const headings = columns.map(({ name }) => {
+  const headings = (vertical ? [] : columns).map(({ name }) => {
     const heading = element("span", "generation");
     heading.title = name.replace(/^\d+: /, "");
     return heading;
@@ -803,6 +1057,8 @@ async function loadTree(id, moveFocus = false, view = null, refresh = false) {
       initialDepth.value = view.depth;
       childrenToggle.checked = view.children;
       siblingsToggle.checked = view.siblings ?? true;
+      familyGroupsToggle.checked = view.familyGroups ?? false;
+      layoutSelect.value = view.layout ?? "horizontal";
       gapToggle.checked = !EXTERNAL_READER && view.gaps;
       chartScale = view.scale;
       for (const [key, paths] of view.branches) {
@@ -815,7 +1071,8 @@ async function loadTree(id, moveFocus = false, view = null, refresh = false) {
     selectedPerson = null;
     detailsButton.disabled = true;
     if (shareButton) shareButton.disabled = true;
-    for (const control of [zoomOut, zoomIn, fitView, childrenToggle, siblingsToggle,
+    if (saveChartButton) saveChartButton.disabled = true;
+    for (const control of [zoomOut, zoomIn, fitView, childrenToggle, siblingsToggle, familyGroupsToggle, layoutSelect,
       document.querySelector("#pedigree-generation"), document.querySelector("#pedigree-center")]) {
       control.disabled = true;
     }
@@ -850,6 +1107,7 @@ async function loadTree(id, moveFocus = false, view = null, refresh = false) {
     selectedPerson = data.root.person;
     detailsButton.disabled = false;
     if (shareButton) shareButton.disabled = false;
+    if (saveChartButton) saveChartButton.disabled = false;
     if (view && Number.isFinite(view.scrollTop)) {
       viewport.scrollTo(view.scrollLeft, view.scrollTop);
     }
@@ -1461,6 +1719,14 @@ document.addEventListener("keydown", (event) => {
 initPedigreeTools();
 siblingsToggle.addEventListener("change", () => {
   if (chartData) redrawWithScroll();
+  saveChartView();
+});
+familyGroupsToggle.addEventListener("change", () => {
+  if (chartData) redrawWithScroll();
+  saveChartView();
+});
+layoutSelect.addEventListener("change", () => {
+  if (chartData) displayGraph(chartData, false);
   saveChartView();
 });
 void loadTree(currentPerson(), false, historyView());
