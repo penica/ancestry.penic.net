@@ -961,13 +961,20 @@ function displayGraph(data, moveFocus, showChildrenColumn = false) {
         const fromX = positionX(column) + cardWidth;
         const toX = positionX(column + 1);
         const fromY = cardY(node);
-        if (familyGroupsToggle.checked && node.parents.length > 1) {
-          const shared = node === root ? siblings.filter((_, index) =>
+        if (familyGroupsToggle.checked && node.parents.length) {
+          const shared = node === root && node.parents.length > 1 ? siblings.filter((_, index) =>
             data.siblings[index].shares_parents) : [];
-          drawFamilyConnector(paths,
-            [node, ...shared].map((child) => ({ x: fromX, y: cardY(child) })),
-            node.parents.map((parent) => ({ x: toX, y: cardY(parent) })),
-            (fromX + toX) / 2, fromY, node.branch);
+          const ends = node.parents.map((parent) => ({ x: toX, y: cardY(parent) }));
+          const jointX = (fromX + toX) / 2;
+          const jointY = (ends[0].y + ends.at(-1).y) / 2;
+          const branch = node.parents.length > 1 ? node.branch : node.parents[0].branch;
+          // Keep each bracket between its own parent cards.
+          for (const child of [node, ...shared]) {
+            const lead = connector(fromX, cardY(child), jointX, jointY, branch);
+            lead.classList.add("family-connector");
+            paths.append(lead);
+          }
+          drawFamilyConnector(paths, [], ends, jointX, jointY, branch);
         } else {
           for (const parent of node.parents) {
             paths.append(connector(fromX, fromY, toX, cardY(parent), parent.branch));
