@@ -277,7 +277,19 @@ button.reset { cursor: pointer; }
   overflow-wrap: anywhere;
 }
 .pedigree-tool-row { display: grid; align-items: start; grid-template-columns: auto auto minmax(0, 1fr); column-gap: var(--s2); flex: 1 1 100%; min-inline-size: 0; }
-.chart-layout { display: flex; grid-area: 1 / 1; align-items: center; gap: var(--s2); font-size: var(--type-detail); }
+.chart-layout { position: relative; display: flex; grid-area: 1 / 1; align-items: center; gap: var(--s2); font-size: var(--type-detail); }
+.chart-layout select { appearance: none; padding-inline-end: calc(var(--s6) + var(--s2)); }
+.chart-layout::after {
+  content: "";
+  position: absolute;
+  inset-inline-end: var(--s3);
+  inline-size: var(--s2);
+  block-size: var(--s2);
+  border-inline-end: 1px solid currentColor;
+  border-block-end: 1px solid currentColor;
+  transform: translateY(-25%) rotate(45deg);
+  pointer-events: none;
+}
 .pedigree-tool-panel { grid-area: 1 / 2 / 2 / -1; min-inline-size: 0; font-size: var(--type-detail); }
 #pedigree-hint { grid-area: 1 / 3; justify-self: end; padding-block: var(--s3); text-align: end; pointer-events: none; }
 .pedigree-tool-panel summary {
