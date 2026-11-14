@@ -171,10 +171,12 @@ button.reset { cursor: pointer; }
 .chart-view-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s1); }
 .chart-view-controls output { min-inline-size: 3.25rem; text-align: center; font-variant-numeric: tabular-nums; }
 .zoom-button { min-inline-size: var(--target); padding-inline: var(--s2); }
+.fullscreen-refresh { display: none; }
 .chart-fullscreen { overflow: hidden; }
 .chart-fullscreen .masthead, .chart-fullscreen .page-header,
 .chart-fullscreen .publish-status,
 .chart-fullscreen #pedigree-summary, .chart-fullscreen #pedigree-hint { display: none; }
+.chart-fullscreen .fullscreen-refresh { display: inline-flex; }
 .chart-fullscreen main.shell { padding-inline: 0; }
 .chart-fullscreen .tree { border: 0; border-radius: 0; margin: 0; }
 .chart-fullscreen .tree-header { gap: var(--s1) var(--s4); padding: var(--s2) var(--s4); }
@@ -483,6 +485,7 @@ button.reset { cursor: pointer; }
   .reader-masthead .reader-tree-switch label { position: absolute; clip-path: inset(50%); }
   .page-header, .chart-fullscreen .page-header { display: block; margin: var(--s1) 0; }
   .chart-fullscreen .page-header { padding-inline: var(--s2); }
+  .chart-fullscreen .fullscreen-refresh { display: none; }
   .page-header > h1 { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); }
   .controls { align-items: stretch; inline-size: 100%; gap: var(--s1); }
   .controls .reset, .search-fields button { padding-inline: var(--s2); }

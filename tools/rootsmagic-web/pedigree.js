@@ -1780,7 +1780,9 @@ async function refreshDetails() {
   detailsScroll.scrollTop = scrollTop;
 }
 
-document.querySelector("#pedigree-refresh").addEventListener("click", () => void refreshTree());
+for (const button of document.querySelectorAll("[data-chart-refresh]")) {
+  button.addEventListener("click", () => void refreshTree());
+}
 detailsRefreshButton.addEventListener("click", () => void refreshDetails());
 detailsRetry.addEventListener("click", () => {
   detailsRefreshButton.focus({ preventScroll: true });

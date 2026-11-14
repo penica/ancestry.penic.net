@@ -88,7 +88,7 @@ Layout: API key settings - reuse the system navigation and administrator form an
 
 - Test a desktop and a phone width in light and dark mode. Verify the chart is the scrolling region, generation controls fit, and the fixed panel header leaves room to scroll the details.
 - Open #406 in both default files and verify the directory, chart, record, and links agree within each tree. Check that **Reset view** stays in that tree.
-- Check that **Full screen** grows the chart, Escape exits it, **Fit to view** shows all cards, and zoom keeps the chart centered near the same point. After opening and closing branches and changing the zoom, re-root and use **Previous person** to restore the view.
+- Check that **Full screen** grows the chart, **Refresh** reloads it in place, Escape exits full screen, **Fit to view** shows all cards, and zoom keeps the chart centered near the same point. On wide screens, full-screen **Refresh** sits beside **View details**. After opening and closing branches and changing the zoom, re-root and use **Previous person** to restore the view.
 - On #227 in the working tree, show children and verify both parental families on the chart and in the A0 PDF. Open the research worklist, filter by category and generation, and select an entry. The card receives focus and the starting person remains the same.
 - Start with #37 and #240. Test generation jump, Center, search by name and ID, Show more, Previous, and Reset. On the direct link to #614, check the fallback child link and that Show children places #612 to the left. Confirm keyboard focus stays visible.
 - Open #406. Check the section jumps, citations, a family link, and Escape returning focus to **View details**. Verify **Open full record** uses the pedigree database.

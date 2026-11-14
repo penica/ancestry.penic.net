@@ -36,7 +36,7 @@
             <ul id="pedigree-results" aria-label="People found"></ul>
           </div>
         </form>
-        <button class="reset" id="pedigree-refresh" type="button">Refresh</button>
+        <button class="reset" id="pedigree-refresh" type="button" data-chart-refresh>Refresh</button>
         {% if comments_token %}<button class="reset" id="pedigree-share" type="button" aria-haspopup="dialog" disabled>Share chart</button>{% endif %}
         {% if publish_token %}
         <button class="reset" id="pedigree-publish" type="button" data-publish-token="{{ publish_token }}">Publish</button>
@@ -56,6 +56,7 @@
           <div class="root-title">
             <h2 id="pedigree-root" tabindex="-1">Ancestry</h2>
             <button class="reset" id="pedigree-details" type="button" aria-haspopup="dialog" aria-controls="person-details" disabled>View details</button>
+            <button class="reset fullscreen-refresh" type="button" data-chart-refresh>Refresh</button>
           </div>
           <p id="pedigree-summary"></p>
           <p id="pedigree-children" hidden></p>
