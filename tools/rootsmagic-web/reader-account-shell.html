@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}{% endblock %} · RootsMagic Reader</title>
+  <title>{% if error %}Error: {% endif %}{% block title %}{% endblock %} · RootsMagic Reader</title>
   <link rel="stylesheet" href="{{ asset('reader.css') }}">
   <link rel="stylesheet" href="{{ asset('reader-accounts.css') }}">
   {% block extra_styles %}{% endblock %}

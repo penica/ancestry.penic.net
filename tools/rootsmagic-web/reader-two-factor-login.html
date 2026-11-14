@@ -2,6 +2,7 @@
 {% block title %}Verify your sign-in{% endblock %}
 {% block content %}
 <h1>Verify your sign-in</h1>
+<p class="muted">This prompt expires after {{ prompt_minutes }} minutes.</p>
 <form class="account-form" action="/login/verify" method="post">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <input type="hidden" name="next" value="{{ next_path|default('/pedigree', true) }}">

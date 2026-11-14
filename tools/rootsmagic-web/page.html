@@ -1,10 +1,12 @@
-{% macro image_gallery(images) -%}
+{% macro image_gallery(images, event=none) -%}
 <div class="record-images">
   {% for image in images %}
   <figure class="record-image">
     {% if image.available %}
     <a class="record-image-link" href="{{ tree.url('/api/v1/pedigree/media/' ~ image.id) }}" data-image-preview aria-haspopup="dialog">
-      <img src="{{ tree.url('/api/v1/pedigree/media/' ~ image.id) }}" alt="{{ image.caption or image.filename }}" loading="lazy" decoding="async">
+      <img src="{{ tree.url('/api/v1/pedigree/media/' ~ image.id ~ '?size=thumb') }}"
+        alt="{{ image.caption or ('Scan linked to ' ~ event.kind ~ (' · ' ~ event.date_display if event.date_display else '') if event else image.filename) }}"
+        width="480" height="360" loading="lazy" decoding="async">
     </a>
     {% endif %}
     <figcaption>
@@ -150,7 +152,7 @@
           {% if event.details %}<p class="note">{{ event.details }}</p>{% endif %}
           {% if event.note %}<p class="note">{{ event.note }}</p>{% endif %}
           {% if record_images and record_images.events.get(event.id) %}
-          {{ image_gallery(record_images.events.get(event.id)) }}
+          {{ image_gallery(record_images.events.get(event.id), event) }}
           {% endif %}
           {% if event.citations %}
           <details>
@@ -158,10 +160,10 @@
             <ul class="citations">
               {% for citation in event.citations %}
               <li>
-                <strong>{{ (citation.source or citation.name or 'Untitled source')|striptags }}</strong>
-                {% if citation.source and citation.name %}<p>{{ citation.name|striptags }}</p>{% endif %}
+                <strong>{{ citation.source or citation.name or 'Untitled source' }}</strong>
+                {% if citation.source and citation.name %}<p>{{ citation.name }}</p>{% endif %}
                 {% if citation.reference %}<p>Reference: {{ citation.reference }}</p>{% endif %}
-                {% if citation.footnote %}<p class="note">{{ citation.footnote|striptags }}</p>{% endif %}
+                {% if citation.footnote %}<p class="note">{{ citation.footnote }}</p>{% endif %}
               </li>
               {% endfor %}
             </ul>

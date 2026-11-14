@@ -8,9 +8,10 @@ import sqlite3
 import unicodedata
 from contextlib import closing, contextmanager
 from datetime import date
+from html import unescape
 from typing import TYPE_CHECKING, Final, Literal, NewType
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from reader_external import PUBLIC_VIEWS, ExternalTree, authorize_external
 
@@ -174,6 +175,13 @@ class Citation(Record):
     name: str | None
     reference: str | None
     footnote: str | None
+
+    @field_validator("source", "name", "footnote")
+    @classmethod
+    def citation_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return unescape(re.sub(r"<!--.*?-->|</?[A-Za-z][^<>]*>", "", value, flags=re.S))
 
 
 class Event(Record):

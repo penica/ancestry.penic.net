@@ -74,7 +74,8 @@ def mfa_router(access: ReaderAccess, templates: Environment) -> APIRouter:
         csrf = form_token(request)
         response = HTMLResponse(
             templates.get_template("reader-two-factor-login.html").render(
-                csrf_token=csrf, next_path=destination, error=error
+                csrf_token=csrf, next_path=destination, error=error,
+                prompt_minutes=MFA_LOGIN_SECONDS // 60,
             ),
             status_code=status,
         )

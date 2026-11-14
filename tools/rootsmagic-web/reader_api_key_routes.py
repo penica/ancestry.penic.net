@@ -133,6 +133,10 @@ def api_key_settings_router(access: ReaderAccess, templates: Environment) -> API
                 status=400,
                 error="Enter a name and choose a tree, scope, and expiry.",
             )
+        if draft.scope == "family" and form.get("family_confirmation") != "ALL PEOPLE":
+            return await page(
+                request, status=400, error="Type ALL PEOPLE to grant access to living and private records."
+            )
         if not any(
             tree.slug == draft.tree_slug and tree.path.is_file()
             for tree in available_trees()

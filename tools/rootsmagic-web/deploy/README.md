@@ -57,7 +57,7 @@ Set `ROOTSMAGIC_SETTINGS_FILE` to an absolute private JSON file to override the 
 
 Before updating an existing VM, back up the account database and run `.venv/bin/python reader_accounts.py migrate /srv/rootsmagic-reader/state/accounts.sqlite3` as `penica` from the tested release. The migration creates the API key table, adds missing account fields and tables, and enables the External Reader role in invitations and tree memberships. Existing accounts, access, sessions, and invitations are preserved. Restart the service with the updated release after migration.
 
-API key metadata and hashes are included in the account database backup. After restoring an older backup, review **System settings → API keys** and revoke any credentials the backup brought back. The proxy must pass the HTTPS scheme and `Authorization` header to the reader for [registry integration](../README.md#registry-integration-api).
+API key metadata and hashes are included in the account database backup. After restoring an older backup, review **System settings → API keys** and revoke any credentials the backup brought back. Confirm all-people access by typing `ALL PEOPLE` when creating a key. New and rotated all-people keys expire within 90 days. The proxy must pass the HTTPS scheme and `Authorization` header to the reader for [registry integration](../README.md#registry-integration-api).
 
 For a new VM, run this over SSH as `penica` to create the first administrator's setup invitation. Copy the output privately into the `token` query parameter of `https://ancestry.penic.org/invite`. The setup link expires after 30 minutes. Run the command again after expiry to issue a fresh link.
 

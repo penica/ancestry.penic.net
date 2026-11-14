@@ -6,10 +6,13 @@ import os
 import re
 from functools import lru_cache
 from html import unescape
+from io import BytesIO
 from pathlib import Path
+from threading import BoundedSemaphore
 from typing import TYPE_CHECKING, Final
 from urllib.parse import urlsplit
 
+from PIL import Image, ImageOps
 from pydantic import TypeAdapter, ValidationError
 
 from store import EVENTS, PersonID, Profile, Record, connect
@@ -27,6 +30,37 @@ INLINE_IMAGE_TYPES: Final = {
     ".gif": "image/gif",
     ".webp": "image/webp",
 }
+THUMBNAIL_SIZE: Final = (480, 360)
+THUMBNAIL_WORK: Final = BoundedSemaphore(2)
+
+
+def media_thumbnail(path: Path) -> bytes | None:
+    """Generate a small preview and invalidate it when the source file changes."""
+    if path.suffix.lower() not in INLINE_IMAGE_TYPES:
+        return None
+    try:
+        identity = path.stat()
+        return _thumbnail(
+            path, identity.st_dev, identity.st_ino, identity.st_size,
+            identity.st_mtime_ns, identity.st_ctime_ns,
+        )
+    except (OSError, ValueError, Image.DecompressionBombError):
+        return None
+
+
+@lru_cache(maxsize=64)
+def _thumbnail(path: Path, *identity: int) -> bytes | None:
+    with THUMBNAIL_WORK, Image.open(path) as image:
+        if image.width * image.height > 48_000_000:
+            return None
+        image.draft("RGB", (960, 720))
+        image.thumbnail(THUMBNAIL_SIZE)
+        preview = ImageOps.exif_transpose(image).convert("RGBA")
+        canvas = Image.new("RGB", preview.size, "white")
+        canvas.paste(preview, mask=preview.getchannel("A"))
+        output = BytesIO()
+        canvas.save(output, "JPEG", quality=80, optimize=True)
+        return output.getvalue()
 CITATION_EVIDENCE: Final = """
     SELECT DISTINCT c.CitationID AS id, s.Name COLLATE BINARY AS label,
         coalesce(c.Footnote, '') || ' ' || coalesce(c.ShortFootnote, '') || ' ' ||

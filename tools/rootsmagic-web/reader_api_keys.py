@@ -112,6 +112,8 @@ class ApiKeys:
         scope: KeyScope,
         days: KeyLifetime,
     ) -> IssuedKey:
+        if scope == "family" and days > 90:
+            raise AccountsError("Keys with all-people access can last up to 90 days.")
         secret = "rmr_" + token_urlsafe(32)
         now = int(time())
         with self.accounts._connect(write=True) as db:
@@ -163,7 +165,9 @@ class ApiKeys:
             _require_admin(db, actor)
             row = db.execute(
                 """UPDATE reader_api_keys SET token_hash = ?, prefix = ?,
-                       expires_at = ? + lifetime_days * ?, last_used_at = NULL, version = version + 1
+                       lifetime_days = CASE WHEN scope = 'family' THEN min(lifetime_days, 90) ELSE lifetime_days END,
+                       expires_at = ? + (CASE WHEN scope = 'family' THEN min(lifetime_days, 90) ELSE lifetime_days END) * ?,
+                       last_used_at = NULL, version = version + 1
                    WHERE id = ? AND version = ? AND revoked_at IS NULL RETURNING *""",
                 (
                     key_digest(secret),

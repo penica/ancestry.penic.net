@@ -7,12 +7,14 @@ import sqlite3
 import sys
 import unittest
 from contextlib import closing
+from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from cryptography.fernet import Fernet
 from fastapi import HTTPException
+from PIL import Image
 from pyotp import TOTP
 from starlette.requests import Request
 
@@ -22,10 +24,11 @@ from pedigree_research import relationship_paths
 from pedigree_store import pedigree, pedigree_details
 from reader_access import ReaderAccess
 from reader_accounts import Accounts, AccountsError, LoginChallenge, LoginThrottled, Role
+from reader_api_keys import ApiKeys
 from reader_comments import CommentDraft, Comments, ReaderActor
 from reader_external import ExternalTree
 from reader_tree_state import TreeState
-from store import PersonID, connect, pedigree_search
+from store import Citation, PersonID, connect, pedigree_search
 from tree_catalog import Tree
 
 FIXTURE = Path(__file__).parent / "fixtures" / "privacy-tree.sql"
@@ -177,3 +180,37 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
             os.environ, {"ROOTSMAGIC_ACCOUNTS_DB": str(self.accounts.path)}, clear=True
         ):
             self.assertIsNone(recorded_path(self.tree.path, media))
+
+    def test_thumbnail_is_bounded_and_rebuilt_when_source_changes(self) -> None:
+        from pedigree_evidence import media_thumbnail
+
+        file = self.root / "sample.png"
+        Image.new("RGB", (1200, 900), "navy").save(file)
+        preview = media_thumbnail(file)
+        self.assertIsNotNone(preview)
+        with Image.open(BytesIO(preview)) as image:
+            self.assertEqual(image.size, (480, 360))
+            self.assertEqual(image.format, "JPEG")
+        Image.new("RGB", (1200, 900), "red").save(file)
+        self.assertNotEqual(media_thumbnail(file), preview)
+        file.write_bytes(b"Invalid image")
+        self.assertIsNone(media_thumbnail(file))
+
+    def test_api_key_rotation_revocation_and_wide_scope_expiry(self) -> None:
+        admin = self.accounts.bootstrap_admin("owner", PASSWORD)
+        keys = ApiKeys(self.accounts)
+        with self.assertRaises(AccountsError):
+            keys.create(admin.id, "Long key", "fixture", "family", 365)
+        original = keys.create(admin.id, "Registry", "fixture", "family", 90)
+        self.assertIsNotNone(keys.authenticate(original.secret))
+        rotated = keys.rotate(admin.id, original.info.id, original.info.version)
+        self.assertIsNone(keys.authenticate(original.secret))
+        self.assertEqual(rotated.info.lifetime_days, 90)
+        keys.revoke(admin.id, rotated.info.id, rotated.info.version)
+        self.assertIsNone(keys.authenticate(rotated.secret))
+
+    def test_citations_have_plain_text_in_the_shared_projection(self) -> None:
+        citation = Citation(id=1, source="<b>Source</b>", name=None,
+                            reference="1", footnote="A &amp; B")
+        self.assertEqual(citation.source, "Source")
+        self.assertEqual(citation.footnote, "A & B")

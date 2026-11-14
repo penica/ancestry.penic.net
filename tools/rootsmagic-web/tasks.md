@@ -11,10 +11,12 @@ Check off a step when its behavior has been verified. **P1** covers the current 
 - [x] Redirect expired chart sessions to sign-in and restore the current chart. Add confirmations for destructive actions, friendly failure pages, and author comment removal (UX-02 to UX-06).
 - [x] Cache versioned static assets, add crawler directives, and route access to raw evidence through a family-only dependency (PERF-01, SEO-01, ARCH-03).
 - [x] Cache the relationship graph and converted notes, and index saved charts by owner (PERF-03, PERF-08, PERF-11).
+- [x] Serve thumbnails in full-record galleries and keep the original in the preview dialog (PERF-04).
+- [x] Require confirmation and cap the lifetime of new or rotated all-people API keys. Apply the same citation text in both record views (GDPR-05, UX-10).
 - [x] Add synthetic tree tests for account access and the External Reader boundary, and run them before release (TEST-01 to TEST-03, initial coverage).
 - [ ] Expand regression coverage across remaining HTTP endpoints, passkeys, printing and browser journeys (TEST-01 to TEST-05).
 - [ ] Add a verified email and password reset flow, a safe administrator second-factor enrollment policy, and the remaining account and accessibility improvements.
-- [ ] Improve large chart queries and image previews, and separate database migrations and other structural refactors into their own releases.
+- [ ] Batch large chart queries, and separate database migrations and other structural refactors into their own releases.
 - [ ] Document retention, review Cloudflare and family sharing policies, and arrange a second backup destination outside the house.
 
 ## P1 · Current changes

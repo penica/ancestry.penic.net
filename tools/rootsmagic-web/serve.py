@@ -52,6 +52,7 @@ from pedigree_evidence import (
     INLINE_IMAGE_TYPES,
     PersonEvidence,
     media_file,
+    media_thumbnail,
     person_evidence,
     record_images,
 )
@@ -968,10 +969,18 @@ def api_evidence(person_id: RecordID, tree: FamilyTree) -> PersonEvidence:
 
 
 @app.get("/api/v1/pedigree/media/{media_id}", tags=["Pedigree"])
-def api_media(media_id: RecordID, tree: FamilyTree) -> FileResponse:
+def api_media(
+    media_id: RecordID, tree: FamilyTree, size: Literal["thumb"] | None = None
+) -> Response:
     file = media_file(tree.path, media_id)
     if file is None:
         raise HTTPException(status_code=404, detail="Linked media is unavailable")
+    if size == "thumb" and (thumbnail := media_thumbnail(file)) is not None:
+        return Response(
+            thumbnail,
+            media_type="image/jpeg",
+            headers={"Cross-Origin-Resource-Policy": "same-origin"},
+        )
     suffix = file.suffix.lower()
     media_type = (
         "application/pdf" if suffix == ".pdf" else INLINE_IMAGE_TYPES.get(suffix)
