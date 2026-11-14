@@ -1,0 +1,40 @@
+{% extends "reader-account-shell.html" %}
+{% set heading = 'Verify your email' if mode in ['verify', 'verified', 'verify-error'] else 'Reset your password' %}
+{% block title %}{{ heading }}{% endblock %}
+{% block content %}
+<h1>{{ heading }}</h1>
+{% if mode == 'request' %}
+<form class="account-form" action="/password/reset" method="post">
+  <input name="csrf_token" type="hidden" value="{{ csrf_token }}">
+  <div class="account-field">
+    <label for="reset-username">Username</label>
+    <input id="reset-username" name="username" maxlength="64" autocomplete="username" required>
+  </div>
+  <button type="submit" name="action" value="request">Send reset link</button>
+</form>
+{% elif mode == 'sent' %}
+<p>If the account has a verified email and recovery is available, a reset link will arrive by email. Contact your tree administrator if you need help.</p>
+{% elif mode == 'verify' %}
+<form class="account-form" action="/email/verify" method="post">
+  <input name="csrf_token" type="hidden" value="{{ csrf_token }}">
+  <button type="submit">Verify email address</button>
+</form>
+{% elif mode == 'reset' %}
+<form class="account-form" action="/password/reset" method="post">
+  <input name="csrf_token" type="hidden" value="{{ csrf_token }}">
+  <div class="account-field">
+    <label for="reset-password">New password</label>
+    <input id="reset-password" name="password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required>
+  </div>
+  <div class="account-field">
+    <label for="reset-confirm">Confirm new password</label>
+    <input id="reset-confirm" name="password_confirm" type="password" minlength="12" maxlength="128" autocomplete="new-password" required>
+  </div>
+  <button type="submit">Save new password</button>
+</form>
+{% elif mode == 'reset-done' %}<p>Password saved. Sign in again with your new password.</p>
+{% elif mode == 'verified' %}<p>Your email address is verified.</p>
+{% elif mode == 'invalid' and not error %}<p>This link has expired or already been used.</p>
+{% endif %}
+<p><a href="{{ '/account/email' if mode in ['verify-error', 'verified'] else '/login' }}">{{ 'Back to email settings' if mode in ['verify-error', 'verified'] else 'Back to sign in' }}</a></p>
+{% endblock %}

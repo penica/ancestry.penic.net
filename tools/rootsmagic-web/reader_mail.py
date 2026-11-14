@@ -217,6 +217,47 @@ class Mail:
         with self.accounts._connect() as db:
             _require_admin(db, actor)
             row = settings_row(db)
+        self._send(recipient, subject, text, row, draft, password)
+
+    def account_links_available(self) -> bool:
+        """Enable account links only over TLS or through a local relay."""
+        with self.accounts._connect() as db:
+            row = settings_row(db)
+        return row is not None and self._account_link_transport(
+            SMTPSettings.model_validate_json(row["configuration"])
+        )
+
+    @staticmethod
+    def _account_link_transport(settings: SMTPSettings) -> bool:
+        if settings.security != "none":
+            return True
+        if settings.uses_authentication:
+            return False
+        try:
+            return ip_address(settings.host).is_loopback
+        except ValueError:
+            return False
+
+    def send_account_link(self, recipient: str, subject: str, text: str) -> None:
+        """Deliver an account link through the configured protected mail transport."""
+        with self.accounts._connect() as db:
+            row = settings_row(db)
+        if row is None:
+            raise MailError("Configure the email server first.")
+        settings = SMTPSettings.model_validate_json(row["configuration"])
+        if not self._account_link_transport(settings):
+            raise MailError("Verification and reset emails require TLS or a local mail relay.")
+        self._send(mail_address(recipient), subject, text, row, settings, "")
+
+    def _send(
+        self,
+        recipient: str,
+        subject: str,
+        text: str,
+        row: sqlite3.Row | None,
+        draft: SMTPSettings | None,
+        password: str,
+    ) -> None:
         if draft is None:
             if row is None:
                 raise MailError("Configure the email server first.")

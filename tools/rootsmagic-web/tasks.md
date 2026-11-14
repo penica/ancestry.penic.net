@@ -15,7 +15,9 @@ Check off a step when its behavior has been verified. **P1** covers the current 
 - [x] Require confirmation and cap the lifetime of new or rotated all-people API keys. Apply the same citation text in both record views (GDPR-05, UX-10).
 - [x] Add synthetic tree tests for account access and the External Reader boundary, and run them before release (TEST-01 to TEST-03, initial coverage).
 - [ ] Expand regression coverage across remaining HTTP endpoints, passkeys, printing and browser journeys (TEST-01 to TEST-05).
-- [ ] Add a verified email and password reset flow, a safe administrator second-factor enrollment policy, and the remaining account and accessibility improvements.
+- [x] Verify contact emails and provide single-use password recovery over protected SMTP. Require verified administrator sessions while allowing new administrators to enroll (UX-01, GDPR-07, SEC-05).
+- [ ] Enable email recovery in production after the mail relay offers TLS or a local relay is configured. The existing invitation mail settings still apply.
+- [ ] Finish the remaining account and accessibility improvements.
 - [ ] Batch large chart queries, and separate database migrations and other structural refactors into their own releases.
 - [ ] Document retention, review Cloudflare and family sharing policies, and arrange a second backup destination outside the house.
 

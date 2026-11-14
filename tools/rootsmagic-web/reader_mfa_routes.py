@@ -24,7 +24,7 @@ from reader_access import (
     signed_in,
     verify_csrf,
 )
-from reader_accounts import AccountsError, LoginThrottled
+from reader_accounts import AccountsError, LoginThrottled, admin_verification_required
 from reader_audit import audit
 from reader_mfa import MFA_LOGIN_SECONDS
 
@@ -100,6 +100,7 @@ def mfa_router(access: ReaderAccess, templates: Environment) -> APIRouter:
                 current_user=session.account,
                 csrf_token=session.csrf_token,
                 mfa_enabled=session.account.mfa_enabled,
+                requires_factor=session.account.administrator and admin_verification_required(),
                 secret=setup.secret if setup else "",
                 recovery_codes=recovery_codes,
                 profile_page=True,

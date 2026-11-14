@@ -30,8 +30,10 @@ from reader_accounts import (
     LoginThrottled,
     ProfileField,
     Role,
+    admin_verification_required,
 )
 from reader_audit import audit
+from reader_email_routes import email_router
 from reader_mail import Mail, mail_address
 from reader_mfa_routes import mfa_router, start_mfa_login
 from reader_passkey_routes import passkey_router, passkeys_available
@@ -64,6 +66,7 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
     router = APIRouter(include_in_schema=False)
     router.include_router(person_router(access, templates))
     router.include_router(mfa_router(access, templates))
+    router.include_router(email_router(access, templates))
     router.include_router(passkey_router(access, templates))
     router.include_router(system_router(access, templates))
 
@@ -86,6 +89,8 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
                 error=error,
                 csrf_token=csrf,
                 passkeys_available=passkeys_available(access, request),
+                mail_recovery_available=Mail(access.store()).account_links_available()
+                if name == "reader-login.html" else False,
             ),
             status_code=status,
         )
@@ -174,6 +179,7 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
                 person_summary=person_summary,
                 person_available=person_available,
                 mfa_available=store.mfa_available,
+                mail_recovery_available=Mail(store).account_links_available() if field == "email" else False,
             ),
             status_code=status,
         )
@@ -187,8 +193,12 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
         return profile_page(request, tree=tree, notice=PROFILE_NOTICES.get(updated, ""))
 
     @router.get("/account/{field}")
-    def edit_profile(request: Request, field: ProfileField) -> HTMLResponse:
-        return profile_page(request, field=field)
+    def edit_profile(request: Request, field: ProfileField, updated: str = "") -> HTMLResponse:
+        return profile_page(
+            request, field=field,
+            notice="Check your inbox for your verification link."
+            if field == "email" and updated == "verification-sent" else "",
+        )
 
     @router.post("/account/{field}")
     async def update_profile(request: Request, field: ProfileField) -> Response:
@@ -265,6 +275,16 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
             )
             if isinstance(issued, LoginChallenge):
                 return start_mfa_login(issued, destination)
+            if (
+                admin_verification_required() and issued.session.account.administrator
+                and issued.session.account.has_passkey and not issued.session.verified
+            ):
+                await run_in_threadpool(store.logout, issued.token)
+                return form_page(
+                    request, "reader-login.html", username=username,
+                    next_path=destination, status=401,
+                    error="Sign in with your passkey on the public reader.",
+                )
             audit("sign_in", "ok", actor=issued.session.account.id)
             return signed_in(issued, destination)
         audit("sign_in", "limited" if status == 429 else "denied", visitor=client)

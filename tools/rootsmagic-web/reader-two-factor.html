@@ -17,6 +17,9 @@
 {%- endmacro %}
 
 {% block content %}
+{% if requires_factor and not mfa_enabled %}
+<p>Administrators must set up an authenticator or passkey before opening the tree and system settings. An authenticator also works on the LAN address.</p>
+{% endif %}
 <h1>Two-step verification</h1>
 
 {% if stage == 'setup' %}

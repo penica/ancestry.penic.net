@@ -53,6 +53,8 @@ SESSION_SECONDS: Final = 12 * 60 * 60
 INVITATION_SECONDS: Final = 7 * 24 * 60 * 60
 BOOTSTRAP_SECONDS: Final = 30 * 60
 ATTEMPT_WINDOW: Final = 15 * 60
+EMAIL_TOKEN_SECONDS: Final = 30 * 60
+EmailPurpose = Literal["verify", "reset"]
 USERNAME: Final = re.compile(r"[a-z0-9][a-z0-9_.-]{2,63}")
 EMAIL_LOCAL: Final = re.compile(r"[a-z0-9.!#$%&'*+/=?^_`{|}~-]+", re.ASCII | re.I)
 EMAIL_LABEL: Final = re.compile(
@@ -79,12 +81,30 @@ REQUIRED_TABLES: Final = frozenset(
         "reader_passkey_users",
         "reader_passkeys",
         "reader_passkey_challenges",
+        "reader_verified_sessions",
+        "reader_verified_email",
+        "reader_email_tokens",
     }
 )
 ACCOUNT_ID_FLOOR: Final = """
 CREATE TABLE IF NOT EXISTS reader_account_id_floor (
     id INTEGER PRIMARY KEY CHECK (id = 1), last_account_id INTEGER NOT NULL
 )"""
+SECURITY_SCHEMA: Final = """
+CREATE TABLE IF NOT EXISTS reader_verified_sessions (
+    token_hash BLOB PRIMARY KEY REFERENCES reader_sessions(token_hash) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS reader_verified_email (
+    account_id INTEGER PRIMARY KEY REFERENCES reader_accounts(id) ON DELETE CASCADE,
+    address TEXT NOT NULL, verified_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS reader_email_tokens (
+    account_id INTEGER NOT NULL REFERENCES reader_accounts(id) ON DELETE CASCADE,
+    purpose TEXT NOT NULL CHECK (purpose IN ('verify', 'reset')),
+    token_hash BLOB NOT NULL UNIQUE, address TEXT NOT NULL, password_salt BLOB NOT NULL,
+    expires_at INTEGER NOT NULL, PRIMARY KEY (account_id, purpose)
+);
+"""
 SCHEMA: Final = f"""
 CREATE TABLE IF NOT EXISTS reader_mail_settings (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -190,6 +210,8 @@ class Account:
     email: str | None = None
     person_links: tuple[PersonLink, ...] = ()
     mfa_enabled: bool = False
+    has_passkey: bool = False
+    email_verified: bool = False
 
     def role_for(self, slug: str) -> Role | None:
         """Return the current role for a tree, including global administrators."""
@@ -220,6 +242,7 @@ class Session:
     account: Account
     csrf_token: str
     expires_at: int
+    verified: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -364,6 +387,11 @@ def _read_account(db: sqlite3.Connection, row: sqlite3.Row) -> Account:
         row["email"],
         tuple(PersonLink(slug, person_id) for slug, person_id in people),
         _mfa_enabled(db, row["id"]),
+        _has_passkey(db, row["id"]),
+        row["email"] is not None and db.execute(
+            "SELECT 1 FROM reader_verified_email WHERE account_id = ? AND address = ?",
+            (row["id"], row["email"]),
+        ).fetchone() is not None,
     )
 
 
@@ -421,6 +449,15 @@ def _require_admin(db: sqlite3.Connection, account_id: AccountID) -> None:
     if row["disabled"] or not row["administrator"]:
         message = "Administrator access is required."
         raise AccountsError(message)
+    if admin_verification_required() and not (
+        _mfa_enabled(db, account_id) or _has_passkey(db, account_id)
+    ):
+        raise AccountsError("Set up an authenticator or passkey to use administrator tools.")
+
+
+def admin_verification_required() -> bool:
+    """Apply the administrator sign-in policy when enabled in the hosted service."""
+    return os.environ.get("ROOTSMAGIC_REQUIRE_ADMIN_FACTOR") == "1"
 
 
 def _keep_admin(db: sqlite3.Connection, row: sqlite3.Row) -> None:
@@ -471,15 +508,19 @@ def _issue_invitation(
     return token
 
 
-def _issue_session(db: sqlite3.Connection, account: Account) -> IssuedSession:
+def _issue_session(
+    db: sqlite3.Connection, account: Account, *, verified: bool = False
+) -> IssuedSession:
     now = int(time())
     token = secrets.token_urlsafe(32)
-    session = Session(account, secrets.token_urlsafe(32), now + SESSION_SECONDS)
+    session = Session(account, secrets.token_urlsafe(32), now + SESSION_SECONDS, verified)
     db.execute("DELETE FROM reader_sessions WHERE expires_at <= ?", (now,))
     db.execute(
         "INSERT INTO reader_sessions VALUES (?, ?, ?, ?)",
         (_digest(token), account.id, session.csrf_token, session.expires_at),
     )
+    if verified:
+        db.execute("INSERT INTO reader_verified_sessions VALUES (?)", (_digest(token),))
     return IssuedSession(token, session)
 
 
@@ -490,6 +531,18 @@ def _mfa_enabled(db: sqlite3.Connection, account_id: int) -> bool:
         ).fetchone()
         is not None
     )
+
+
+def _has_passkey(db: sqlite3.Connection, account_id: int) -> bool:
+    return db.execute(
+        "SELECT 1 FROM reader_passkeys WHERE account_id = ?", (account_id,)
+    ).fetchone() is not None
+
+
+def _session_verified(db: sqlite3.Connection, token_hash: bytes) -> bool:
+    return db.execute(
+        "SELECT 1 FROM reader_verified_sessions WHERE token_hash = ?", (token_hash,)
+    ).fetchone() is not None
 
 
 def _revoke_account_sessions(db: sqlite3.Connection, account_id: int) -> None:
@@ -611,7 +664,7 @@ class Accounts:
             if app_id != APPLICATION_ID and (app_id or has_schema):
                 message = "Choose a separate reader accounts database."
                 raise AccountsError(message)
-            for statement in (SCHEMA + MFA_SCHEMA).split(";"):
+            for statement in (SCHEMA + MFA_SCHEMA + SECURITY_SCHEMA).split(";"):
                 if statement.strip():
                     db.execute(statement)
             migrate_roles(db)
@@ -702,7 +755,7 @@ class Accounts:
 
     def _reserve_attempt(
         self,
-        user: bytes,
+        user: bytes | None,
         client: bytes | None,
         *,
         limits: tuple[int, int] | None = None,
@@ -830,7 +883,7 @@ class Accounts:
                 "DELETE FROM reader_mfa_challenges WHERE token_hash = ?", (token_hash,)
             )
             _clear_attempts(db, user, client)
-            return _issue_session(db, _read_account(db, current))
+            return _issue_session(db, _read_account(db, current), verified=True)
 
     def _verify_current_password(
         self, token_hash: bytes, client_key: str | None, password: str
@@ -924,7 +977,7 @@ class Accounts:
             _clear_attempts(db, user, client)
             _revoke_account_sessions(db, account_id)
             return MFARecovery(
-                _issue_session(db, _read_account(db, current)), recovery_codes
+                _issue_session(db, _read_account(db, current), verified=True), recovery_codes
             )
 
     def _change_mfa(
@@ -944,6 +997,11 @@ class Accounts:
         mfa_user, mfa_client = self._reserve_mfa_attempt(account_id, client_key)
         with self._mfa_cipher() as cipher, self._connect(write=True) as db:
             current = _require_same_credentials(db, token_hash, original)
+            if (
+                disable and current["administrator"] and admin_verification_required()
+                and not _has_passkey(db, account_id)
+            ):
+                raise AccountsError("Add a passkey before removing your last sign-in factor.")
             if not consume_factor(db, cipher, account_id, code, int(time())):
                 message = (
                     "Enter a current authenticator code or an unused recovery code."
@@ -960,7 +1018,7 @@ class Accounts:
             _clear_attempts(db, mfa_user, mfa_client)
             _revoke_account_sessions(db, account_id)
             return MFARecovery(
-                _issue_session(db, _read_account(db, current)), recovery_codes
+                _issue_session(db, _read_account(db, current), verified=not disable), recovery_codes
             )
 
     def disable_mfa(
@@ -996,7 +1054,10 @@ class Accounts:
             row = _session_row(db, token_hash)
             if row is None:
                 return None
-            return Session(_read_account(db, row), row["csrf_token"], row["expires_at"])
+            return Session(
+                _read_account(db, row), row["csrf_token"], row["expires_at"],
+                _session_verified(db, token_hash),
+            )
 
     def update_profile(
         self,
@@ -1069,9 +1130,15 @@ class Accounts:
                 )
                 raise AccountsError(message)
             db.execute(statement, (*parameters, account_id))
+            if field == "email" and parameters[0] != current["email"]:
+                db.execute("DELETE FROM reader_verified_email WHERE account_id = ?", (account_id,))
+                db.execute("DELETE FROM reader_email_tokens WHERE account_id = ?", (account_id,))
+            verified = _session_verified(db, token_hash)
             _revoke_account_sessions(db, account_id)
             _clear_attempts(db, user, client)
-            return _issue_session(db, _read_account(db, _account_row(db, account_id)))
+            return _issue_session(
+                db, _read_account(db, _account_row(db, account_id)), verified=verified
+            )
 
     def set_person_link(
         self, token: str | None, tree_slug: str, person_id: int | None
@@ -1190,6 +1257,124 @@ class Accounts:
             _require_admin(db, actor_id)
             rows = db.execute("SELECT * FROM reader_accounts ORDER BY username")
             return tuple(_read_account(db, row) for row in rows)
+
+    def _issue_email_token(
+        self, db: sqlite3.Connection, account: sqlite3.Row, purpose: EmailPurpose
+    ) -> str:
+        token = secrets.token_urlsafe(32)
+        now = int(time())
+        db.execute("DELETE FROM reader_email_tokens WHERE expires_at <= ?", (now,))
+        db.execute(
+            """INSERT INTO reader_email_tokens VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(account_id, purpose) DO UPDATE SET token_hash = excluded.token_hash,
+                 address = excluded.address, password_salt = excluded.password_salt,
+                 expires_at = excluded.expires_at""",
+            (account["id"], purpose, _digest(token), account["email"],
+             account["salt"], now + EMAIL_TOKEN_SECONDS),
+        )
+        return token
+
+    def email_verification_link(self, session: str | None, address: str | None, password: str) -> tuple[str, str]:
+        """Issue a verification token for the signed-in account's current address."""
+        token_hash = _required_token_hash(session)
+        original, user, client = self._verify_current_password(token_hash, address, password)
+        account_id = original["id"]
+        self._reserve_attempt(_digest(f"verify-email:{account_id}"), None, limits=(4, 3))
+        with self._connect(write=True) as db:
+            account = _require_same_credentials(db, token_hash, original)
+            if not account["email"]:
+                raise AccountsError("Save an email address first.")
+            if _read_account(db, account).email_verified:
+                raise AccountsError("This email address is already verified.")
+            _clear_attempts(db, user, client)
+            return account["email"], self._issue_email_token(db, account, "verify")
+
+    def password_reset_link(self, username: str, address: str | None) -> tuple[str, str] | None:
+        """Issue a reset only to an enabled account with a verified address."""
+        try:
+            username = _username(username)
+        except AccountsError:
+            username = ""
+        visitor = client_bucket("reset-email:visitor", address)
+        self._reserve_attempt(None, visitor or _digest("reset-email:shared"), limits=(15, 3))
+        with self._connect(write=True) as db:
+            account = db.execute(
+                """SELECT a.* FROM reader_accounts a JOIN reader_verified_email e
+                   ON a.id = e.account_id AND a.email = e.address
+                   WHERE a.username = ? AND NOT a.disabled""",
+                (username,),
+            ).fetchone()
+            if account is None:
+                return None
+            pending = db.execute(
+                """SELECT 1 FROM reader_email_tokens
+                   WHERE account_id = ? AND purpose = 'reset' AND expires_at > ?
+                     AND address = ? AND password_salt = ?""",
+                (account["id"], int(time()), account["email"], account["salt"]),
+            ).fetchone()
+            if pending:
+                return None
+            return account["email"], self._issue_email_token(db, account, "reset")
+
+    def discard_email_token(self, token: str) -> None:
+        """Allow a retry after a mail delivery failure."""
+        with self._connect(write=True) as db:
+            db.execute("DELETE FROM reader_email_tokens WHERE token_hash = ?", (_digest(token),))
+
+    def _email_token_account(
+        self, db: sqlite3.Connection, token: str | None, purpose: EmailPurpose
+    ) -> sqlite3.Row | None:
+        token_hash = _token_hash(token)
+        if token_hash is None:
+            return None
+        return db.execute(
+            """SELECT a.id, a.email, a.username FROM reader_email_tokens t JOIN reader_accounts a
+               ON a.id = t.account_id AND a.email = t.address AND a.salt = t.password_salt
+               WHERE t.token_hash = ? AND t.purpose = ? AND t.expires_at > ? AND NOT a.disabled
+               AND (t.purpose = 'verify' OR EXISTS (
+                   SELECT 1 FROM reader_verified_email e WHERE e.account_id = a.id AND e.address = a.email
+               ))""",
+            (token_hash, purpose, int(time())),
+        ).fetchone()
+
+    def email_token_available(self, token: str | None, purpose: EmailPurpose) -> bool:
+        with self._connect() as db:
+            return self._email_token_account(db, token, purpose) is not None
+
+    def verify_email_link(self, token: str) -> None:
+        """Mark the same address verified and consume the link in one transaction."""
+        with self._connect(write=True) as db:
+            account = self._email_token_account(db, token, "verify")
+            if account is None:
+                raise AccountsError("This link has expired or already been used.")
+            db.execute(
+                """INSERT INTO reader_verified_email VALUES (?, ?, ?)
+                   ON CONFLICT(account_id) DO UPDATE SET address = excluded.address,
+                       verified_at = excluded.verified_at""",
+                (account["id"], account["email"], int(time())),
+            )
+            db.execute("DELETE FROM reader_email_tokens WHERE token_hash = ?", (_digest(token),))
+
+    def redeem_password_reset(self, token: str, password: str) -> None:
+        """Replace a password and revoke sessions without changing sign-in factors."""
+        if not self.email_token_available(token, "reset"):
+            raise AccountsError("This link has expired or already been used.")
+        salt, password_hash = _new_password(password)
+        with self._connect(write=True) as db:
+            account = self._email_token_account(db, token, "reset")
+            if account is None:
+                raise AccountsError("This link has expired or already been used.")
+            account_id = account["id"]
+            db.execute(
+                "UPDATE reader_accounts SET salt = ?, password_hash = ? WHERE id = ?",
+                (salt, password_hash, account_id),
+            )
+            _revoke_account_sessions(db, account_id)
+            db.execute("DELETE FROM reader_email_tokens WHERE account_id = ?", (account_id,))
+            db.execute(
+                "DELETE FROM reader_login_attempts WHERE bucket = ?",
+                (_digest(f"user:{account['username']}"),),
+            )
 
     def list_invitations(self, actor_id: AccountID) -> tuple[Invitation, ...]:
         """Return unexpired invitations without their activation credentials."""

@@ -16,7 +16,8 @@
   </div>
   <button type="submit">Sign in</button>
 </form>
-<p class="muted">Forgot your password? Contact your tree administrator to reset it.</p>
+{% if mail_recovery_available %}<p><a href="/password/reset">Forgot your password?</a></p>
+{% else %}<p class="muted">Forgot your password? Contact your tree administrator to reset it.</p>{% endif %}
 {% if passkeys_available %}
 <div class="passkey-sign-in" id="passkey-sign-in" hidden>
   <button class="account-secondary" id="passkey-login" type="button">Sign in with a passkey</button>

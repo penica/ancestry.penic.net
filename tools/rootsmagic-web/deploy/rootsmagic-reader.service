@@ -12,8 +12,10 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 LoadCredential=mfa.key:/etc/rootsmagic-reader/mfa.key
 Environment=ROOTSMAGIC_MFA_KEY_FILE=%d/mfa.key
 ExecStartPre=/usr/bin/test -f /srv/rootsmagic-reader/current/reader_mfa.py
+ExecStartPre=/usr/bin/test -s ${ROOTSMAGIC_ACCOUNTS_DB}
+ExecStartPre=/srv/rootsmagic-reader/current/.venv/bin/python /srv/rootsmagic-reader/current/reader_accounts.py migrate ${ROOTSMAGIC_ACCOUNTS_DB}
 # In-memory work limits are shared within this single worker.
-ExecStart=/usr/bin/env ROOTSMAGIC_REQUIRE_ACCOUNTS=1 /srv/rootsmagic-reader/current/.venv/bin/python -m uvicorn serve:app --host 127.0.0.1 --port 8765 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1 --no-access-log
+ExecStart=/usr/bin/env ROOTSMAGIC_REQUIRE_ACCOUNTS=1 ROOTSMAGIC_REQUIRE_ADMIN_FACTOR=1 /srv/rootsmagic-reader/current/.venv/bin/python -m uvicorn serve:app --host 127.0.0.1 --port 8765 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1 --no-access-log
 Restart=on-failure
 RestartSec=2s
 UMask=0077

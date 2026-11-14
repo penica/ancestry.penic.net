@@ -8,6 +8,8 @@ The VM reader uses invitation-based accounts. **Reader** gives family members ac
 
 Open **Account → Account settings** on the VM to edit your name, username, contact email, and password. Choose **My person** to find your record by name or RootsMagic ID in an assigned tree. Once saved, the **My person** button in the header and the **Account → My person** entry both open that record. The choice is saved per tree.
 
+When email recovery is available, open **Account settings → Email**, save your address, and select **Send verification email**. Follow the confirmation link within 30 minutes. A verified address enables **Forgot your password?** at sign-in. A password reset ends existing sessions and keeps your two-step verification and passkeys. Contact your tree administrator for recovery when email recovery is unavailable.
+
 ### External Reader access
 
 In **Manage accounts**, choose **External Reader** for the selected tree when inviting someone or changing their access. A person can have different roles on different trees. Access changes apply on the next request, including in an existing session.
@@ -19,6 +21,8 @@ Records marked living or private, and records with unknown living status, stay h
 Under **Account settings → Two-step verification**, enter your current password and scan the QR code with an authenticator app. Enter the six-digit code to finish setup, then save the one-time recovery codes. At sign-in, enter an authenticator code or one recovery code after your password.
 
 On the [public reader](https://ancestry.penic.org/), choose **Account settings → Passkeys** to register a device, password manager, or security key. Confirm your password and, when enabled, enter an authenticator or recovery code. Then use **Sign in with a passkey**. The LAN address supports password sign-in and the existing two-step verification.
+
+Administrators need an authenticator or passkey. New administrator accounts go through setup before they can open the tree or **System settings**. Use an authenticator on the LAN address.
 
 Administrators can configure SMTP in **Account → System settings → Email server**. Set **SMTP authentication** to **Disabled** for a relay that accepts mail without a login. Use **Send test email** to check the settings before saving. Once configured, **Manage accounts** accepts an optional recipient when creating an invitation and displays the one-time link for copying.
 

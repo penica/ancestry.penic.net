@@ -15,7 +15,7 @@ from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse, PlainTextResponse, RedirectResponse
 
-from reader_accounts import Accounts, Role, Session
+from reader_accounts import Accounts, Role, Session, admin_verification_required
 from reader_api_keys import LOOKUP_PATH
 from tree_catalog import Tree, available_trees
 
@@ -36,10 +36,17 @@ PUBLIC_PATHS: Final = frozenset(
         "/login/passkey/options",
         "/login/passkey/verify",
         "/invite",
+        "/password/reset",
+        "/email/verify",
         "/robots.txt",
     }
 )
 SAFE_METHODS: Final = frozenset({"GET", "HEAD", "OPTIONS"})
+ADMIN_SETUP_PATHS: Final = frozenset({
+    "/logout", "/account/security", "/account/security/setup",
+    "/account/security/qr", "/account/security/confirm",
+    "/account/passkeys", "/account/passkeys/options", "/account/passkeys/verify",
+})
 
 
 def https_origin(value: str, setting: str) -> str:
@@ -171,15 +178,23 @@ class ReaderAccess:
         if session is None:
             if api or request.method not in SAFE_METHODS:
                 return failure("Sign in to use the reader.", 401, api=api)
-            path = request.url.path
-            if request.url.query:
-                path += f"?{request.url.query}"
-            return RedirectResponse(
-                f"/login?{urlencode({'next': path})}", status_code=303
-            )
+            return sign_in_redirect(request)
         request.state.reader_session = session
         if request.method not in SAFE_METHODS and not self.same_origin(request):
             return failure("Open the reader and try again.", 403, api=api)
+        account = session.account
+        has_factor = account.mfa_enabled or account.has_passkey
+        if admin_verification_required() and account.administrator and not (session.verified and has_factor):
+            if request.url.path == "/logout":
+                return None
+            if has_factor:
+                if api or request.method not in SAFE_METHODS:
+                    return failure("Sign in with your authenticator or passkey.", 401, api=api)
+                return sign_in_redirect(request)
+            if request.url.path not in ADMIN_SETUP_PATHS:
+                if api or request.method not in SAFE_METHODS:
+                    return failure("Set up an authenticator to continue.", 403, api=api)
+                return RedirectResponse("/account/security", status_code=303)
         return None
 
     def visible_trees(self, request: Request) -> tuple[Tree, ...]:
@@ -215,6 +230,13 @@ def failure(message: str, status: int, *, api: bool) -> Response:
     return PlainTextResponse(message, status_code=status)
 
 
+def sign_in_redirect(request: Request) -> RedirectResponse:
+    path = request.url.path
+    if request.url.query:
+        path += f"?{request.url.query}"
+    return RedirectResponse(f"/login?{urlencode({'next': path})}", status_code=303)
+
+
 def current_session(request: Request) -> Session | None:
     """Read the session attached by the request guard."""
     return getattr(request.state, "reader_session", None)
@@ -233,6 +255,10 @@ def require_admin(request: Request) -> Session:
     session = require_session(request)
     if not session.account.administrator:
         raise HTTPException(status_code=403, detail="Administrator access is required.")
+    if admin_verification_required() and not (
+        session.verified and (session.account.mfa_enabled or session.account.has_passkey)
+    ):
+        raise HTTPException(status_code=403, detail="Sign in with your authenticator or passkey.")
     return session
 
 

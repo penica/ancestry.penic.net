@@ -49,6 +49,25 @@
     <a class="back" href="/account">Cancel</a>
   </div>
 </form>
+{% if field == 'email' and current_user.email %}
+<section aria-labelledby="verify-email-heading" class="profile-panel">
+  <h2 id="verify-email-heading">Email verification</h2>
+  {% if current_user.email_verified %}
+    <p>This address is verified for password recovery.</p>
+  {% elif mail_recovery_available %}
+    <form class="account-form" action="/account/email/verify" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="account-field">
+        <label for="verify-email-password">Current password</label>
+        <input id="verify-email-password" name="current_password" type="password" autocomplete="current-password" maxlength="128" required>
+      </div>
+      <button type="submit">Send verification email</button>
+    </form>
+  {% else %}
+    <p>Email verification is unavailable. Contact your tree administrator for password recovery.</p>
+  {% endif %}
+</section>
+{% endif %}
 {% else %}
 <section class="profile-panel" aria-labelledby="profile-information">
   <h2 id="profile-information">Account information</h2>

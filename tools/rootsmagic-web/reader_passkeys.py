@@ -31,12 +31,14 @@ from reader_accounts import (
     AccountsError,
     _clear_attempts,
     _digest,
+    _has_passkey,
     _issue_session,
     _mfa_enabled,
     _read_account,
     _require_same_credentials,
     _require_session_row,
     _required_token_hash,
+    admin_verification_required,
     client_bucket,
 )
 from reader_mfa import consume_factor
@@ -305,7 +307,7 @@ class Passkeys:
                     "UPDATE reader_passkeys SET sign_count = ? WHERE credential_id = ?",
                     (result.new_sign_count, assertion.raw_id),
                 )
-                return _issue_session(db, _read_account(db, stored))
+                return _issue_session(db, _read_account(db, stored), verified=True)
         except (WebAuthnException, ValueError, TypeError, KeyError) as error:
             raise PasskeyError(message) from error
 
@@ -337,6 +339,11 @@ class Passkeys:
             if cursor.rowcount != 1:
                 raise PasskeyError("Choose a saved passkey.")
             if name is None:
+                if (
+                    current["administrator"] and admin_verification_required()
+                    and not (_mfa_enabled(db, current["id"]) or _has_passkey(db, current["id"]))
+                ):
+                    raise PasskeyError("Set up an authenticator before removing your last sign-in factor.")
                 db.execute(
                     "DELETE FROM reader_sessions WHERE account_id = ? AND token_hash <> ?",
                     (current["id"], _required_token_hash(session)),
