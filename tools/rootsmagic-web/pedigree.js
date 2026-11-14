@@ -777,7 +777,7 @@ function displayGraph(data, moveFocus, showChildrenColumn = false) {
   } else {
     for (const node of partners) {
       const marriages = data.partner_marriages?.[node.person.id];
-      if (!marriages?.length || (familyGroupsToggle.checked && childGroups.some((group) => group.partner?.id === node.person.id))) continue;
+      if (!marriages?.length) continue;
       const label = element("div", "marriage partner-marriage");
       label.dataset.partnerId = String(node.person.id);
       label.style.width = `${gutter - rem * 1.5}px`;
