@@ -103,9 +103,6 @@
                   <label for="pedigree-generation">Go to generation
                     <select id="pedigree-generation" disabled></select>
                   </label>
-                  <label class="children-toggle"><input id="pedigree-family-groups" type="checkbox" disabled> Show family groups</label>
-                  <label class="children-toggle"><input id="pedigree-show-children" type="checkbox"{% if chart_settings.children %} checked{% endif %} disabled> Show children</label>
-                  <label class="children-toggle"><input id="pedigree-show-siblings" type="checkbox"{% if chart_settings.siblings %} checked{% endif %} disabled> Show siblings</label>
                   <label for="pedigree-depth">Initial depth
                     <select id="pedigree-depth">
                     {% for depth in (3, 5, 8, 11) %}
@@ -128,6 +125,23 @@
               </div>
             </div>
           </details>
+          <div class="chart-switches" role="group" aria-label="Show on chart">
+            <label class="chart-switch">
+              <input class="visually-hidden" id="pedigree-family-groups" type="checkbox" role="switch" disabled>
+              <span class="switch-track" aria-hidden="true"></span>
+              Family groups
+            </label>
+            <label class="chart-switch">
+              <input class="visually-hidden" id="pedigree-show-children" type="checkbox" role="switch"{% if chart_settings.children %} checked{% endif %} disabled>
+              <span class="switch-track" aria-hidden="true"></span>
+              Children
+            </label>
+            <label class="chart-switch">
+              <input class="visually-hidden" id="pedigree-show-siblings" type="checkbox" role="switch"{% if chart_settings.siblings %} checked{% endif %} disabled>
+              <span class="switch-track" aria-hidden="true"></span>
+              Siblings
+            </label>
+          </div>
           <p id="pedigree-hint" class="hint">Select any card to start from that person. Scroll to explore.</p>
         </div>
       </div>
