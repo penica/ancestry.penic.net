@@ -55,6 +55,7 @@ const commentStatus = document.querySelector("#person-comment-status");
 const commentSubmit = commentForm?.querySelector("button");
 const commentDate = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 const initialDepth = document.querySelector("#pedigree-depth");
+const descendantDepth = document.querySelector("#pedigree-descendant-depth");
 const childrenToggle = document.querySelector("#pedigree-show-children");
 const siblingsToggle = document.querySelector("#pedigree-show-siblings");
 const familyGroupsToggle = document.querySelector("#pedigree-family-groups");
@@ -68,6 +69,8 @@ const branchExpansions = new Map();
 const collapsedBranches = new Set();
 
 let treeRequest;
+let descendantRequest;
+let loadedDescendantDepth = 1;
 let countRequest;
 let searchRequest;
 let detailsRequest;
@@ -113,6 +116,7 @@ function previousPerson() {
 function captureChartView() {
   return {
     depth: initialDepth.value,
+    descendantDepth: Number(descendantDepth.value),
     children: childrenToggle.checked,
     siblings: siblingsToggle.checked,
     familyGroups: familyGroupsToggle.checked,
@@ -435,6 +439,15 @@ function verticalLine(paths, from, to, middle, branch, familyId) {
   return line;
 }
 
+function placeChildGroup(group, start, slot) {
+  let x = start;
+  for (const node of group.nodes) {
+    node.x = x + (node.slots - 1) * slot / 2;
+    x += slot * node.slots;
+  }
+  return x;
+}
+
 function placeVerticalFamilies(root, partners, siblings, groups, slot) {
   const families = new Map(partners.map((partner) => [partner.person.id, { partner, groups: [] }]));
   const unpaired = [];
@@ -447,14 +460,11 @@ function placeVerticalFamilies(root, partners, siblings, groups, slot) {
       families.get(id).groups.push(group);
     }
   }
-  const size = (items) => items.reduce((count, { nodes }) => count + nodes.length, 0);
+  const size = (items) => items.reduce((count, { slots }) => count + slots, 0);
   const place = (items, start) => {
     let x = start;
-    for (const { nodes } of items) {
-      for (const node of nodes) {
-        node.x = x;
-        x += slot;
-      }
+    for (const group of items) {
+      x = placeChildGroup(group, x, slot);
     }
   };
   const half = (Math.max(1, size(unpaired)) - 1) * slot / 2;
@@ -474,6 +484,24 @@ function placeVerticalFamilies(root, partners, siblings, groups, slot) {
   siblings.forEach((node, index) => { node.x = right + index * slot; });
 }
 
+function placeDescendantFamilies(groups, slot) {
+  const rows = [];
+  let level = groups.flatMap(({ nodes }) => nodes);
+  while (level.length) {
+    const row = [];
+    for (const parent of level) {
+      let start = parent.x - (parent.slots - 1) * slot / 2;
+      for (const group of parent.families) {
+        start = placeChildGroup(group, start, slot);
+        row.push({ parent, group });
+      }
+    }
+    if (row.length) rows.push(row);
+    level = row.flatMap(({ group }) => group.nodes);
+  }
+  return rows;
+}
+
 function drawVerticalChart(stage, paths, graph, columns, childGroups, inset, cardWidth, rem, rowGap) {
   stage.classList.add("vertical-chart");
   const { root, partners, siblings, levels } = graph;
@@ -486,6 +514,7 @@ function drawVerticalChart(stage, paths, graph, columns, childGroups, inset, car
     for (const node of row) node.height = node.card.offsetHeight + node.actions.offsetHeight;
   }
   placeVerticalFamilies(root, partners, siblings, childGroups, slot);
+  const descendantRows = placeDescendantFamilies(childGroups, slot);
   for (let level = 0; level + 1 < levels.length; level++) {
     const next = levels[level + 1];
     const families = [...levels[level]].sort((a, b) => a.x - b.x);
@@ -500,14 +529,15 @@ function drawVerticalChart(stage, paths, graph, columns, childGroups, inset, car
     packColumn(ordered, rowGap * 2, (node) => node.heightOnRow);
     for (const node of next) node.x = node.y;
   }
-  for (const group of childGroups) {
-    group.label.style.width = `${Math.max(cardWidth, group.nodes.length * slot - rowGap * 2)}px`;
+  const deepGroups = descendantRows.flatMap((row) => row.map(({ group }) => group));
+  for (const group of [...childGroups, ...deepGroups]) {
+    group.label.style.width = `${group.nodes.at(-1).x - group.nodes[0].x + cardWidth}px`;
     group.labelHeight = group.label.offsetHeight;
     for (const node of group.nodes) {
       node.height = node.card.offsetHeight + node.actions.offsetHeight;
     }
   }
-  const all = [...rows.flat(), ...children];
+  const all = [...rows.flat(), ...children, ...deepGroups.flatMap(({ nodes }) => nodes)];
   const left = Math.min(...all.map((node) => node.x)) - cardWidth / 2 - inset;
   const right = Math.max(...all.map((node) => node.x)) + cardWidth / 2 + inset;
   const center = (node) => node.x - left;
@@ -601,7 +631,23 @@ function drawVerticalChart(stage, paths, graph, columns, childGroups, inset, car
     }
   }
   const childHeading = height;
+  const descendantHeadings = [];
+  function drawChildren(group, start, lane, headerTop, cardTop, branch) {
+    const first = center(group.nodes[0]);
+    const last = center(group.nodes.at(-1));
+    const labelStart = first - cardWidth / 2;
+    const bus = cardTop - rowGap / 2;
+    group.label.style.left = `${labelStart}px`;
+    group.label.style.top = `${headerTop}px`;
+    const enterFromLeft = Math.abs(start.x - first) <= Math.abs(start.x - last);
+    const entry = enterFromLeft ? labelStart : last + cardWidth / 2;
+    const line = verticalLine(paths, start, { x: entry, y: bus }, lane, branch, group.id);
+    const arms = group.nodes.map((child) => `M ${center(child)} ${bus} V ${cardTop}`);
+    line.setAttribute("d", `${line.getAttribute("d")} H ${enterFromLeft ? last : first} ${arms.join(" ")}`);
+    for (const child of group.nodes) position(child, cardTop);
+  }
   if (children.length) {
+    descendantHeadings.push(childHeading);
     const headerTop = height + rowGap * 2;
     const childTop = headerTop + Math.max(...childGroups.map((group) => group.labelHeight)) + rowGap;
     const ordered = [...childGroups].sort((a, b) => a.nodes[0].x - b.nodes[0].x);
@@ -612,14 +658,8 @@ function drawVerticalChart(stage, paths, graph, columns, childGroups, inset, car
     }
     const usedPorts = new Map();
     for (const [index, group] of ordered.entries()) {
-      const first = center(group.nodes[0]);
-      const last = center(group.nodes.at(-1));
-      const bus = childTop - rowGap / 2;
       const lane = height + rowGap * (1 + (index + 1) / (ordered.length + 1));
       const branch = ordered.length > 1 ? index % 4 : null;
-      const labelStart = first - cardWidth / 2;
-      group.label.style.left = `${labelStart}px`;
-      group.label.style.top = `${headerTop}px`;
       const offset = (index - (ordered.length - 1) / 2) * Math.min(rem / 2, cardWidth / ordered.length);
       const id = group.partner?.id;
       const junction = partnershipJunctions.get(id);
@@ -629,20 +669,26 @@ function drawVerticalChart(stage, paths, graph, columns, childGroups, inset, car
       const port = (junction?.side === -1 ? groupCount - 1 - used : used) * Math.min(rem / 4, cardWidth / groupCount);
       const start = junction ? { x: junction.x - junction.side * port, y: junction.y }
         : { x: center(root) + offset, y: root.y + root.height };
-      const entry = Math.abs(start.x - first) <= Math.abs(start.x - last) ? labelStart : last + cardWidth / 2;
-      const line = verticalLine(paths, start, { x: entry, y: bus }, lane, branch, group.id);
-      const arms = group.nodes.map((child) => `M ${center(child)} ${bus} V ${childTop}`);
-      const farEnd = entry === labelStart ? last : first;
-      line.setAttribute("d", `${line.getAttribute("d")} H ${farEnd} ${arms.join(" ")}`);
-      for (const child of group.nodes) position(child, childTop);
+      drawChildren(group, start, lane, headerTop, childTop, branch);
     }
     height = childTop + Math.max(...children.map((node) => node.height)) + inset;
   }
-  const first = children.length ? 1 : 0;
+  for (const row of descendantRows) {
+    descendantHeadings.push(height);
+    const headerTop = height + rowGap * 2;
+    const cardTop = headerTop + Math.max(...row.map(({ group }) => group.labelHeight)) + rowGap;
+    for (const [index, { parent, group }] of row.entries()) {
+      const lane = height + rowGap * (1 + (index + 1) / (row.length + 1));
+      const branch = row.length > 1 ? index % 4 : null;
+      drawChildren(group, { x: center(parent), y: parent.y + parent.height }, lane, headerTop, cardTop, branch);
+    }
+    height = cardTop + Math.max(...row.flatMap(({ group }) => group.nodes.map((node) => node.height))) + inset;
+  }
+  const first = descendantHeadings.length;
   columns.forEach(({ name }, index) => {
     const heading = element("span", "generation", name);
     heading.style.left = `${inset / 3}px`;
-    heading.style.top = `${index < first ? childHeading : rowTop[index - first] - rem}px`;
+    heading.style.top = `${index < first ? descendantHeadings[index] : rowTop[index - first] - rem}px`;
     stage.append(heading);
   });
   return { width: Math.max(right - left, cardWidth + inset * 2), height, center };
@@ -720,6 +766,31 @@ function generationName(level) {
   return GENERATIONS[level] ?? (level === 3 ? "Great-grandparents" : `${level - 2}× great-grandparents`);
 }
 
+function descendantGenerationName(depth) {
+  return ["Children", "Grandchildren", "Great-grandchildren"][depth - 1] ?? `${depth - 2}× great-grandchildren`;
+}
+
+function buildChildGroups(stage, families, parent, depth, prefix, rows) {
+  return families.map((family) => {
+    const key = `${prefix}/${family.id}`;
+    const label = element("p", "child-family", `${parent.name} · ${family.partner?.name ?? "Other parent not recorded"}`);
+    stage.append(label);
+    if (familyGroupsToggle.checked && family.marriage) {
+      label.append(element("span", "child-family-marriage", factText(family.marriage)));
+    }
+    const nodes = family.children.map((child) => {
+      const person = child.person ?? child;
+      const role = depth === 1 ? "Child" : ["Grandchild", "Great-grandchild"][depth - 2] ?? `${depth - 2}× great-grandchild`;
+      const node = stageNode(stage, person, role, null, 1 - depth, `${key}/${person.id}`);
+      (rows[depth - 1] ??= []).push(node);
+      node.families = buildChildGroups(stage, child.families ?? [], person, depth + 1, `${key}/${person.id}`, rows);
+      node.slots = Math.max(1, node.families.reduce((sum, group) => sum + group.slots, 0));
+      return node;
+    });
+    return { label, nodes, slots: nodes.reduce((sum, node) => sum + node.slots, 0), partner: family.partner, id: family.id };
+  });
+}
+
 function displayGraph(data, moveFocus, showChildrenColumn = false) {
   viewport.hidden = false;
   const ruler = element("div", "generation-ruler");
@@ -735,23 +806,17 @@ function displayGraph(data, moveFocus, showChildrenColumn = false) {
   const graph = rootGraph(stage, data);
   const { root, partners, siblings, levels } = graph;
   const childrenStatus = document.querySelector("#pedigree-children-status");
+  const vertical = layoutSelect.value === "vertical";
   const families = data.child_families?.length ? data.child_families
     : data.children.length ? [{ id: 0, partner: null, children: data.children }] : [];
-  const childGroups = childrenToggle.checked ? families.map((family) => {
-    const label = element("p", "child-family",
-      `${root.person.name} · ${family.partner?.name ?? "Other parent not recorded"}`);
-    stage.append(label);
-    const nodes = family.children.map((person) =>
-      stageNode(stage, person, "Child", null, 0, `child/${family.id}/${person.id}`));
-    if (familyGroupsToggle.checked && family.marriage) {
-      label.append(element("span", "child-family-marriage", factText(family.marriage)));
-    }
-    return { label, nodes, partner: family.partner, id: family.id };
-  }) : [];
-  const children = childGroups.flatMap(({ nodes }) => nodes);
-  const rootColumn = children.length ? 1 : 0;
+  const showDescendants = vertical && requestedDescendantDepth() > 1 && loadedDescendantDepth > 1;
+  const rows = [];
+  const childGroups = childrenToggle.checked ? buildChildGroups(stage,
+    showDescendants ? data.descendant_families ?? families : families, root.person, 1, "child", rows) : [];
+  const children = rows[0] ?? [];
+  const rootColumn = rows.length;
   const columns = [
-    ...(children.length ? [{ name: "Children", nodes: children }] : []),
+    ...rows.map((nodes, depth) => ({ name: descendantGenerationName(depth + 1), nodes })),
     ...levels.map((nodes, level) => ({ name: `${level + 1}: ${generationName(level)}`, nodes })),
   ];
   const metrics = getComputedStyle(stage);
@@ -763,7 +828,6 @@ function displayGraph(data, moveFocus, showChildrenColumn = false) {
   const columnWidth = cardWidth + gutter;
   const rowGap = cssSize("--row-gap");
   const partnerPortOffset = rem * 0.375;
-  const vertical = layoutSelect.value === "vertical";
   let verticalLayout;
   let graphWidth;
   let graphHeight;
@@ -946,10 +1010,13 @@ function displayGraph(data, moveFocus, showChildrenColumn = false) {
   siblingsToggle.disabled = false;
   familyGroupsToggle.disabled = false;
   layoutSelect.disabled = false;
+  descendantDepth.closest("label").hidden = !vertical;
+  descendantDepth.disabled = !vertical;
   childrenStatus.hidden = !childrenToggle.checked || children.length > 0;
   childrenStatus.textContent = childrenStatus.hidden ? "" : "No recorded children";
   childrenToggle.onchange = () => {
     displayGraph(data, false, childrenToggle.checked);
+    void updateDescendantDepth();
     saveChartView();
   };
   function goToGeneration() {
@@ -1110,8 +1177,42 @@ async function refreshBranches(data, signal) {
   }
 }
 
+function requestedDescendantDepth() {
+  return layoutSelect.value === "vertical" && childrenToggle.checked ? Number(descendantDepth.value) : 1;
+}
+
+async function updateDescendantDepth() {
+  descendantRequest?.abort();
+  descendantRequest = null;
+  if (treeStatus.textContent === "Loading descendants…") treeStatus.textContent = "";
+  const snapshot = chartData;
+  const depth = requestedDescendantDepth();
+  if (!snapshot || depth === 1 || depth === loadedDescendantDepth || viewport.getAttribute("aria-busy") === "true") return;
+  const request = new AbortController();
+  descendantRequest = request;
+  treeStatus.textContent = "Loading descendants…";
+  try {
+    const data = await getJSON(`${API}/${snapshot.root.person.id}?generations=1&descendant_depth=${depth}`, request.signal);
+    if (request.signal.aborted || chartData !== snapshot) return;
+    snapshot.descendant_families = data.descendant_families;
+    loadedDescendantDepth = depth;
+    treeStatus.textContent = "";
+    redrawWithScroll();
+    saveChartView();
+  } catch (error) {
+    if (request.signal.aborted) return;
+    descendantDepth.value = String(loadedDescendantDepth);
+    treeStatus.textContent = error instanceof PedigreeRequestError ? error.message : "Could not load descendants. Select the depth again to retry.";
+    redrawWithScroll();
+    saveChartView();
+  } finally {
+    if (descendantRequest === request) descendantRequest = null;
+  }
+}
+
 async function loadTree(id, moveFocus = false, view = null, refresh = false) {
   branchRequest?.abort();
+  descendantRequest?.abort();
   if (!refresh) {
     closeDetails();
     closeResearchWorklist();
@@ -1120,6 +1221,7 @@ async function loadTree(id, moveFocus = false, view = null, refresh = false) {
     collapsedBranches.clear();
     if (view) {
       initialDepth.value = view.depth;
+      descendantDepth.value = String(view.descendantDepth ?? 1);
       childrenToggle.checked = view.children;
       siblingsToggle.checked = view.siblings ?? true;
       familyGroupsToggle.checked = view.familyGroups ?? false;
@@ -1139,7 +1241,7 @@ async function loadTree(id, moveFocus = false, view = null, refresh = false) {
     detailsButton.disabled = true;
     if (shareButton) shareButton.disabled = true;
     if (saveChartButton) saveChartButton.disabled = true;
-    for (const control of [zoomOut, zoomIn, fitView, childrenToggle, siblingsToggle, familyGroupsToggle, layoutSelect,
+    for (const control of [zoomOut, zoomIn, fitView, childrenToggle, siblingsToggle, familyGroupsToggle, layoutSelect, descendantDepth,
       document.querySelector("#pedigree-generation"), document.querySelector("#pedigree-center")]) {
       control.disabled = true;
     }
@@ -1161,14 +1263,24 @@ async function loadTree(id, moveFocus = false, view = null, refresh = false) {
   treeStatus.textContent = refresh ? "Refreshing the pedigree…" : "Loading the pedigree…";
   viewport.setAttribute("aria-busy", "true");
   try {
-    const data = await getJSON(`${API}/${id}?generations=${initialDepth.value}`, request.signal);
+    let depth = requestedDescendantDepth();
+    const url = `${API}/${id}?generations=${initialDepth.value}`;
+    let notice = "";
+    const data = await getJSON(`${url}&descendant_depth=${depth}`, request.signal).catch((error) => {
+      if (depth === 1 || !(error instanceof PedigreeRequestError) || error.status !== 422) throw error;
+      notice = error.message;
+      depth = 1;
+      return getJSON(url, request.signal);
+    });
     if (request.signal.aborted) return;
     if (refresh || view?.branches?.length) {
       await refreshBranches(data, request.signal);
       if (request.signal.aborted) return;
       invalidateGaps();
     }
-    treeStatus.textContent = refresh ? "Pedigree refreshed." : "";
+    loadedDescendantDepth = depth;
+    if (notice) descendantDepth.value = "1";
+    treeStatus.textContent = notice || (refresh ? "Pedigree refreshed." : "");
     chartData = data;
     displayGraph(data, moveFocus);
     selectedPerson = data.root.person;
@@ -1197,6 +1309,7 @@ async function loadTree(id, moveFocus = false, view = null, refresh = false) {
   } finally {
     if (treeRequest === request) {
       viewport.removeAttribute("aria-busy");
+      if (requestedDescendantDepth() !== loadedDescendantDepth) void updateDescendantDepth();
       saveChartView();
     }
   }
@@ -1794,6 +1907,14 @@ familyGroupsToggle.addEventListener("change", () => {
 });
 layoutSelect.addEventListener("change", () => {
   if (chartData) displayGraph(chartData, false);
+  void updateDescendantDepth();
+  saveChartView();
+});
+descendantDepth.addEventListener("change", () => {
+  if (!chartData) return;
+  if (!childrenToggle.checked) childrenToggle.checked = true;
+  redrawWithScroll();
+  void updateDescendantDepth();
   saveChartView();
 });
 void loadTree(currentPerson(), false, historyView());

@@ -248,7 +248,7 @@ async function downloadPedigree() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        chart: { ...snapshot, root: visibleRoot(snapshot.root), siblings: siblingsToggle.checked ? snapshot.siblings : [],
+        chart: { ...snapshot, descendant_families: [], root: visibleRoot(snapshot.root), siblings: siblingsToggle.checked ? snapshot.siblings : [],
           partners: partnerRoots.map((root) => root.person) },
         show_children: childrenToggle.checked,
         show_partners: Boolean(partnerRoots.length),

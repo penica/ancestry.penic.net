@@ -19,7 +19,7 @@ let worklistLimit = WORKLIST_PAGE_SIZE;
 let worklistReturnFocus;
 
 function worklistGenerationName(generation) {
-  return generation === 0 ? "Children" : `${generation} · ${generationName(generation - 1)}`;
+  return generation <= 0 ? descendantGenerationName(1 - generation) : `${generation} · ${generationName(generation - 1)}`;
 }
 
 function worklistMissing(gaps) {

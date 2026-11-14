@@ -58,6 +58,8 @@ from pedigree_research import (
     research_gaps,
 )
 from pedigree_store import (
+    MAX_DESCENDANT_DEPTH,
+    DescendantLimitError,
     Pedigree,
     PedigreeNode,
     pedigree,
@@ -522,9 +524,18 @@ def api_pedigree(
     person_id: RecordID,
     tree: SelectedTree,
     generations: Generations = PEDIGREE_GENERATIONS,
+    descendant_depth: Annotated[int, Query(ge=1, le=MAX_DESCENDANT_DEPTH)] = 1,
 ) -> Pedigree:
-    """Get a person, their siblings and the requested generations of ancestry."""
-    chart = pedigree(tree.database, PersonID(person_id), generations)
+    """Get ancestry and optionally multiple generations of descendants."""
+    try:
+        chart = pedigree(
+            tree.database, PersonID(person_id), generations, descendant_depth
+        )
+    except DescendantLimitError as error:
+        raise HTTPException(
+            status_code=422,
+            detail="Too many descendant cards. Choose a smaller descendant depth.",
+        ) from error
     if chart is None:
         raise HTTPException(status_code=404, detail="Person not found")
     return chart
@@ -554,6 +565,7 @@ def render_pedigree(
             starting_person=starting_person or 0,
             person_count=person_count,
             chart_settings=site_settings().chart,
+            max_descendant_depth=MAX_DESCENDANT_DEPTH,
             shared_person=view_person,
             shared_view=view.model_dump_json(by_alias=True) if view else None,
             shared_changed=shared_changed,

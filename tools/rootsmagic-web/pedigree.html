@@ -103,11 +103,21 @@
                   <label for="pedigree-generation">Go to generation
                     <select id="pedigree-generation" disabled></select>
                   </label>
-                  <label for="pedigree-depth">Initial depth
+                  <label for="pedigree-depth">Ancestor depth
                     <select id="pedigree-depth">
                     {% for depth in (3, 5, 8, 11) %}
                     <option value="{{ depth }}"{% if chart_settings.depth == depth %} selected{% endif %}>{{ depth }} generations</option>
                     {% endfor %}
+                    </select>
+                  </label>
+                  <label for="pedigree-descendant-depth" hidden>Descendant depth
+                    <select id="pedigree-descendant-depth" disabled>
+                      <option value="1">1 · Children</option>
+                      <option value="2">2 · Grandchildren</option>
+                      <option value="3">3 · Great-grandchildren</option>
+                      {% for depth in range(4, max_descendant_depth + 1) %}
+                      <option value="{{ depth }}">{{ depth }} generations</option>
+                      {% endfor %}
                     </select>
                   </label>
                 </div>

@@ -13,7 +13,12 @@ from fastapi import HTTPException
 from pydantic import ConfigDict, Field, StringConstraints
 from pydantic.alias_generators import to_camel
 
-from pedigree_store import PARTNER_FAMILIES, pedigree_details, read_parent_family
+from pedigree_store import (
+    MAX_DESCENDANT_DEPTH,
+    PARTNER_FAMILIES,
+    pedigree_details,
+    read_parent_family,
+)
 from reader_tree_state import initialize, initialized
 from store import PersonID, Record, connect
 
@@ -32,6 +37,7 @@ class ChartView(Record):
     model_config = ConfigDict(extra="forbid", alias_generator=to_camel)
 
     depth: Literal["3", "5", "8", "11"]
+    descendant_depth: Annotated[int, Field(ge=1, le=MAX_DESCENDANT_DEPTH)] = 1
     children: bool
     siblings: bool
     gaps: bool

@@ -31,6 +31,8 @@ if TYPE_CHECKING:
 
 FamilyID = NewType("FamilyID", int)
 SiblingRelationship = Literal["Sibling", "Half-sibling"]
+MAX_DESCENDANT_DEPTH: Final = 11
+MAX_DESCENDANTS: Final = 1000
 
 CARD_PERSON: Final = f"""
     SELECT person.*, CASE p.Sex WHEN 0 THEN 'male' WHEN 1 THEN 'female' END AS sex
@@ -135,6 +137,22 @@ class ChildFamily(Record):
     marriage: Fact | None = None
 
 
+class Descendant(Record):
+    person: PersonCard
+    families: tuple[DescendantFamily, ...] = ()
+
+
+class DescendantFamily(Record):
+    id: FamilyID
+    partner: PersonCard | None
+    children: tuple[Descendant, ...]
+    marriage: Fact | None = None
+
+
+class DescendantLimitError(ValueError):
+    """The requested chart contains too many descendant cards to render."""
+
+
 class Pedigree(Record):
     """The selected person's ancestry and immediate relatives."""
 
@@ -145,6 +163,7 @@ class Pedigree(Record):
     partners_with_parents: tuple[PersonID, ...] = ()
     partner_marriages: dict[PersonID, tuple[Fact, ...]] = Field(default_factory=dict)
     child_families: tuple[ChildFamily, ...] = ()
+    descendant_families: tuple[DescendantFamily, ...] = ()
 
 
 class ParentFamily(Record):
@@ -377,15 +396,18 @@ def read_parent_family(
 
 
 def pedigree(
-    path: DatabasePath, person_id: PersonID, generations: int
+    path: DatabasePath, person_id: PersonID, generations: int, descendant_depth: int = 1
 ) -> Pedigree | None:
     """Read the entire chart from one current, read-only database snapshot."""
     with connect(path) as db:
-        return read_pedigree(db, person_id, generations)
+        return read_pedigree(db, person_id, generations, descendant_depth)
 
 
 def read_pedigree(
-    db: sqlite3.Connection, person_id: PersonID, generations: int
+    db: sqlite3.Connection,
+    person_id: PersonID,
+    generations: int,
+    descendant_depth: int = 1,
 ) -> Pedigree | None:
     """Project the chart inside the caller's current database snapshot."""
 
@@ -396,6 +418,67 @@ def read_pedigree(
     @cache
     def parent_family(record_id: PersonID) -> ParentFamily | None:
         return read_parent_family(db, record_id)
+
+    @cache
+    def child_families(record_id: PersonID) -> tuple[ChildFamily, ...]:
+        families: list[ChildFamily] = []
+        rows = db.execute(CHILD_FAMILIES, {"person_id": record_id})
+        for family_id, linked_rows in groupby(rows, key=lambda row: row["family_id"]):
+            links = tuple(linked_rows)
+            children = tuple(
+                child
+                for row in links
+                if (child := card(PersonID(row["child_id"]))) is not None
+            )
+            if children:
+                partner_id = links[0]["partner_id"] or 0
+                partner = card(PersonID(partner_id)) if partner_id > 0 else None
+                families.append(
+                    ChildFamily(
+                        id=FamilyID(family_id),
+                        partner=partner,
+                        children=children,
+                        marriage=facts(db, 1, FamilyID(family_id)).marriage
+                        if partner
+                        else None,
+                    )
+                )
+        return tuple(families)
+
+    descendant_count = 0
+
+    def descendants(
+        record_id: PersonID, remaining: int, lineage: frozenset[PersonID]
+    ) -> tuple[DescendantFamily, ...]:
+        nonlocal descendant_count
+        if remaining == 0:
+            return ()
+        lineage = lineage | {record_id}
+        groups: list[DescendantFamily] = []
+        for family in child_families(record_id):
+            children: list[Descendant] = []
+            for child in family.children:
+                if child.id in lineage:
+                    continue
+                descendant_count += 1
+                if descendant_count > MAX_DESCENDANTS:
+                    raise DescendantLimitError
+                children.append(
+                    Descendant(
+                        person=child,
+                        families=descendants(child.id, remaining - 1, lineage),
+                    )
+                )
+            if children:
+                groups.append(
+                    DescendantFamily(
+                        id=family.id,
+                        partner=family.partner,
+                        marriage=family.marriage,
+                        children=tuple(children),
+                    )
+                )
+        return tuple(groups)
 
     def branch(
         person: PersonCard,
@@ -452,30 +535,9 @@ def read_pedigree(
         if family is not None
         else ()
     )
-    child_families: list[ChildFamily] = []
-    rows = db.execute(CHILD_FAMILIES, {"person_id": person_id})
-    for family_id, linked_rows in groupby(rows, key=lambda row: row["family_id"]):
-        links = tuple(linked_rows)
-        children = tuple(
-            child
-            for row in links
-            if (child := card(PersonID(row["child_id"]))) is not None
-        )
-        if children:
-            partner_id = links[0]["partner_id"] or 0
-            partner = card(PersonID(partner_id)) if partner_id > 0 else None
-            child_families.append(
-                ChildFamily(
-                    id=FamilyID(family_id),
-                    partner=partner,
-                    children=children,
-                    marriage=facts(db, 1, FamilyID(family_id)).marriage
-                    if partner
-                    else None,
-                )
-            )
+    immediate_families = child_families(person_id)
     children_by_id = {
-        child.id: child for group in child_families for child in group.children
+        child.id: child for group in immediate_families for child in group.children
     }
     partners_by_id: dict[PersonID, PersonCard] = {}
     partner_marriages: dict[PersonID, tuple[Fact, ...]] = {}
@@ -499,5 +561,8 @@ def read_pedigree(
             if branch(partner, 1, frozenset()).has_more_parents
         ),
         partner_marriages=partner_marriages,
-        child_families=tuple(child_families),
+        child_families=immediate_families,
+        descendant_families=descendants(person_id, descendant_depth, frozenset())
+        if descendant_depth > 1
+        else (),
     )
