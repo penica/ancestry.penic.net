@@ -12,6 +12,8 @@
   --branch-1: #56718e;
   --branch-2: #99703d;
   --branch-3: #795876;
+  --sex-male: #496f98;
+  --sex-female: #8b587d;
   --s1: .25rem;
   --s2: .5rem;
   --s3: .75rem;
@@ -46,6 +48,8 @@
     --branch-1: #8faac7;
     --branch-2: #caa676;
     --branch-3: #ba97b7;
+    --sex-male: #91b8dc;
+    --sex-female: #cc99be;
   }
 }
 
@@ -227,6 +231,7 @@ button.reset { cursor: pointer; }
   padding: var(--s3);
   background: var(--surface);
   border: 1px solid var(--control);
+  border-inline-start: var(--s1) solid var(--person-sex-color, var(--control));
   border-radius: var(--radius);
   text-decoration: none;
   color: var(--ink);
@@ -234,6 +239,8 @@ button.reset { cursor: pointer; }
   overflow-wrap: anywhere;
 }
 .person-card:hover, .person-card:active, .person-card[aria-current="true"] { background: var(--wash); }
+.person-card[data-sex="male"] { --person-sex-color: var(--sex-male); }
+.person-card[data-sex="female"] { --person-sex-color: var(--sex-female); }
 .person-card:hover .person-name { text-decoration: underline; }
 .card-actions {
   position: absolute;
@@ -309,6 +316,7 @@ button.reset { cursor: pointer; }
 }
 .person-id, .person-role { color: var(--muted); font-size: var(--type-small); font-weight: normal; }
 .person-id { white-space: nowrap; }
+.person-sex { color: var(--person-sex-color); font-weight: 650; text-decoration: none; }
 .person-role { display: block; margin-block-end: var(--s1); }
 .person-fact { display: block; margin-block-start: var(--s1); color: var(--ink); font-size: var(--type-detail); }
 .person-age { white-space: nowrap; }

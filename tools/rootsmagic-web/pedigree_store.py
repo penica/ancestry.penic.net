@@ -32,7 +32,11 @@ if TYPE_CHECKING:
 FamilyID = NewType("FamilyID", int)
 SiblingRelationship = Literal["Sibling", "Half-sibling"]
 
-CARD_PERSON: Final = f"SELECT * FROM ({NAME}) WHERE id = ?"  # noqa: S608
+CARD_PERSON: Final = f"""
+    SELECT person.*, CASE p.Sex WHEN 0 THEN 'male' WHEN 1 THEN 'female' END AS sex
+    FROM ({NAME}) person JOIN PersonTable p ON p.PersonID = person.id
+    WHERE person.id = ?
+"""  # noqa: S608
 PARENT_FAMILY: Final = """
     SELECT f.FamilyID AS id, nullif(f.FatherID, 0) AS father,
            nullif(f.MotherID, 0) AS mother
@@ -102,6 +106,7 @@ class PersonCard(Person):
     birth: Fact | None
     death: Fact | None
     age_at_death: str | None = None
+    sex: Literal["male", "female"] | None = None
 
 
 class PedigreeNode(Record):
@@ -348,6 +353,7 @@ def read_card(db: sqlite3.Connection, record_id: PersonID) -> PersonCard | None:
         id=person.id,
         name=person.name if person.name.strip(" ?_") else "Name unknown",
         living=person.living,
+        sex=row["sex"],
         birth=events.birth,
         death=None if person.living else events.death,
         age_at_death=read_age_at_death(

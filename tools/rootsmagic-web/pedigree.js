@@ -162,9 +162,18 @@ function personCard(person, role = "") {
   const card = personLink(person, "person-card");
   if (role) card.append(element("span", "person-role", role));
   const title = element("span", "person-card-heading");
+  const id = element("span", "person-id", `#${person.id}`);
+  if (person.sex === "male" || person.sex === "female") {
+    card.dataset.sex = person.sex;
+    const male = person.sex === "male";
+    const marker = element("abbr", "person-sex", male ? "M" : "F");
+    marker.title = male ? "Male" : "Female";
+    marker.setAttribute("aria-hidden", "true");
+    id.append(" ", marker, element("span", "visually-hidden", ` ${marker.title}`));
+  }
   title.append(
     element("span", "person-name", person.name),
-    element("span", "person-id", `#${person.id}`),
+    id,
   );
   card.append(
     title,
