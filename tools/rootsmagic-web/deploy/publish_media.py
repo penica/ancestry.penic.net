@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
-from contextlib import contextmanager
-from dataclasses import dataclass
+import stat
+from contextlib import contextmanager, suppress
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import TYPE_CHECKING, Final, NamedTuple
 
 if TYPE_CHECKING:
@@ -22,6 +24,7 @@ NAS_MEDIA: Final = Path("RootsMagicReader/Media")
 PROJECT_MEDIA: Final = {"FamilyTrees": "family-trees", "Archive": "archive"}
 BOOKS: Final = Path("Books")
 CHUNK_SIZE: Final = 1024 * 1024
+CACHE_LIMIT: Final = 8 * 1024 * 1024
 
 
 class MediaError(RuntimeError):
@@ -57,9 +60,84 @@ def digest(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def file_stamp(info: os.stat_result) -> tuple[int, int, int, int, int]:
+    return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
+
+
+@dataclass(slots=True)
+class PreviewChecksums:
+    """Reuse an earlier NAS digest for the same observed file version."""
+
+    path: Path
+    previous: dict[str, list[int | str]] = field(init=False, default_factory=dict)
+    checked: dict[str, list[int | str]] = field(init=False, default_factory=dict)
+
+    def __post_init__(self) -> None:
+        try:
+            flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+            with os.fdopen(os.open(self.path, flags), "rb") as stream:
+                info = os.fstat(stream.fileno())
+                if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077:
+                    return
+                raw = stream.read(CACHE_LIMIT + 1)
+            if len(raw) <= CACHE_LIMIT:
+                data = json.loads(raw)
+                if isinstance(data, dict):
+                    self.previous = data
+        except (OSError, ValueError):
+            pass
+
+    def checksum(self, path: Path, info: os.stat_result) -> str:
+        stamp = file_stamp(info)
+        key = os.fspath(path)
+        entry = self.previous.get(key)
+        if (
+            isinstance(entry, list)
+            and len(entry) == 6
+            and entry[:5] == list(stamp)
+            and isinstance(cached := entry[5], str)
+            and len(cached) == 64
+            and all(char in "0123456789abcdef" for char in cached)
+            and os.access(path, os.R_OK)
+        ):
+            self.checked[key] = entry
+            return cached
+        with path.open("rb") as stream:
+            before = file_stamp(os.fstat(stream.fileno()))
+            value = hashlib.file_digest(stream, "sha256").hexdigest()
+            after = file_stamp(os.fstat(stream.fileno()))
+        if before != after or file_stamp(path.stat()) != after:
+            raise MediaError(f"The NAS file changed during the comparison: {path}")
+        self.checked[key] = [*after, value]
+        return value
+
+    def save(self) -> None:
+        if self.checked == self.previous:
+            return
+        data = json.dumps(self.checked, separators=(",", ":")).encode()
+        if len(data) > CACHE_LIMIT:
+            return
+        temporary: Path | None = None
+        try:
+            with NamedTemporaryFile(dir=self.path.parent, delete=False) as stream:
+                temporary = Path(stream.name)
+                stream.write(data)
+            temporary.replace(self.path)
+        except OSError:
+            # The preview can still proceed when its optional cache is unavailable.
+            pass
+        finally:
+            if temporary is not None:
+                with suppress(OSError):
+                    temporary.unlink(missing_ok=True)
+
+
 def registered_path(folder: str | None, filename: str) -> Path:
     """Decode an absolute recorded path without interpreting traversal."""
     folder = (folder or "").replace("\\", "/")
+    if not folder and filename.startswith("/"):
+        file = Path(filename)
+        folder, filename = str(file.parent), file.name
     if folder.startswith("?/"):
         folder = folder[1:]
     directory = Path(folder)
@@ -169,13 +247,15 @@ def target_path(root: Path, check: MediaCheck) -> Path:
     base = next((path for path in bases if relative.is_relative_to(path)), None)
     if base is None or relative == base:
         raise MediaError(f"The media is outside the permitted NAS folder: {relative}")
+    resolved_root = root.resolve()
     anchor = (root / base).resolve(strict=True)
     path = root / relative
-    if not anchor.is_relative_to(root.resolve()) or not path.resolve().is_relative_to(
+    resolved_path = path.resolve()
+    if not anchor.is_relative_to(resolved_root) or not resolved_path.is_relative_to(
         anchor
     ):
         raise MediaError(f"The media path leaves its NAS folder: {relative}")
-    if check.digest is not None and path.resolve() != root.resolve() / relative:
+    if check.digest is not None and resolved_path != resolved_root / relative:
         raise MediaError(
             f"A NAS link conflicts with the managed media path: {relative}"
         )
@@ -183,9 +263,13 @@ def target_path(root: Path, check: MediaCheck) -> Path:
 
 
 def media_plan(
-    root: Path, checks: tuple[MediaCheck, ...], *, unavailable: list[str] | None = None
+    root: Path,
+    checks: tuple[MediaCheck, ...],
+    *,
+    unavailable: list[str] | None = None,
+    cache: PreviewChecksums | None = None,
 ) -> tuple[MediaChange, ...]:
-    """Confirm archived assets and compare every managed file by checksum."""
+    """Confirm archived assets and compare managed file checksums."""
     check_mount(root)
     changes = []
     for index, check in enumerate(checks):
@@ -195,15 +279,21 @@ def media_plan(
                 raise MediaError(
                     f"A NAS link conflicts with the managed media path: {check.path}"
                 )
-            if path.is_file():
+            try:
+                info = path.stat()
+            except FileNotFoundError:
+                info = None
+            if info is not None and stat.S_ISREG(info.st_mode):
                 if check.digest is None:
                     with path.open("rb") as stream:
                         _ = stream.read(1)
                     continue
-                previous = digest(path)
+                previous = (
+                    cache.checksum(path, info) if cache is not None else digest(path)
+                )
                 if previous != check.digest:
                     changes.append(MediaChange(index, previous))
-            elif check.digest is not None and not path.exists():
+            elif check.digest is not None and info is None:
                 changes.append(MediaChange(index, None))
             else:
                 raise MediaError(

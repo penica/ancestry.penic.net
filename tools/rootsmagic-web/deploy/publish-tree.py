@@ -24,6 +24,7 @@ from publish_media import (
     MediaChange,
     MediaCheck,
     MediaError,
+    PreviewChecksums,
     copy_verified,
     digest,
     local_media,
@@ -164,6 +165,8 @@ def inspect_target(
     expected: str,
     nas: Path | None,
     checks: tuple[MediaCheck, ...],
+    *,
+    verify_media: bool = True,
 ) -> TargetPreview:
     """Read the published record index and NAS media status before sending files."""
     trees, incoming, _ = publication_directories(root)
@@ -175,9 +178,18 @@ def inspect_target(
             index_snapshot(destination) if checksum and checksum != expected else {}
         )
     unavailable: list[str] = []
-    changes = (
-        media_plan(nas, checks, unavailable=unavailable) if nas is not None else ()
+    cache = (
+        PreviewChecksums(incoming / ".preview-media-checksums.json")
+        if nas is not None and not verify_media
+        else None
     )
+    changes = (
+        media_plan(nas, checks, unavailable=unavailable, cache=cache)
+        if nas is not None
+        else ()
+    )
+    if cache is not None:
+        cache.save()
     return {
         "checksum": checksum,
         "records": records,
@@ -434,6 +446,8 @@ def plan_publication(
     nas: Path | None,
     checks: tuple[MediaCheck, ...],
     unavailable: list[str],
+    *,
+    verify_media: bool = False,
 ) -> tuple[PublishPreview, TargetPreview]:
     checksum = digest(snapshot)
     response = run_remote(
@@ -443,6 +457,7 @@ def plan_publication(
         name,
         checksum,
         str(nas) if nas is not None else "-",
+        *(("--verify-media",) if verify_media else ()),
         data=json.dumps(checks).encode() + b"\n",
     )
     target: TargetPreview = json.loads(response)
@@ -466,11 +481,20 @@ def main(argv: list[str]) -> None:
             else describe(result, Path(root) / "trees" / name)
         )
         return
-    if argv[:1] == ["--preview-target"] and len(argv) == 5:
-        _, root, name, expected, nas = argv
+    if (
+        argv[:1] == ["--preview-target"]
+        and len(argv) >= 5
+        and argv[5:] in ([], ["--verify-media"])
+    ):
+        _, root, name, expected, nas, *options = argv
         checks = decode_checks(sys.stdin.buffer.readline())
         target = inspect_target(
-            Path(root), name, expected, None if nas == "-" else Path(nas), checks
+            Path(root),
+            name,
+            expected,
+            None if nas == "-" else Path(nas),
+            checks,
+            verify_media=bool(options),
         )
         print(json.dumps(target))
         return
@@ -523,6 +547,11 @@ def main(argv: list[str]) -> None:
         "--expect-plan", help="publish only if the preview still matches"
     )
     parser.add_argument(
+        "--verify-media",
+        action="store_true",
+        help="read every managed NAS file during a preview",
+    )
+    parser.add_argument(
         "--projects-root",
         type=Path,
         default=PROJECTS,
@@ -561,6 +590,7 @@ def main(argv: list[str]) -> None:
                 args.nas_root if media is not None else None,
                 tuple(item.check for item in media or ()),
                 unavailable,
+                verify_media=args.verify_media or bool(args.expect_plan),
             )
             if args.preview:
                 print(json.dumps(preview, indent=None if args.json else 2))

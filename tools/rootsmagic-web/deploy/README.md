@@ -110,7 +110,7 @@ python3 tools/rootsmagic-web/deploy/publish-tree.py --with-media \
   "$HOME/Projects/FamilyTrees/family-tree.rmtree"
 ```
 
-Add `--preview` to compare the saved tree and linked media. Pass the returned `plan` value as `--expect-plan <value>` to publish that reviewed snapshot.
+Add `--preview` to compare the saved tree and linked media. Repeat previews reuse verified checksums for unchanged managed NAS files. Use `--preview --verify-media` to read every managed NAS file again. Pass the returned `plan` value as `--expect-plan <value>` to publish that reviewed snapshot. Confirmation and installation check media contents directly.
 
 The publisher takes one SQLite snapshot, verifies or copies the media it references, then sends that same snapshot over SSH. It reuses books already in the NAS archive and copies Mac files into the dedicated NAS media directory. The VM checks the snapshot checksum and SQLite contents, saves the previous snapshot in `backups/`, and atomically replaces the file in `trees/`. The default destination name follows the source filename with Unicode normalized for Linux. Use `--name 'family-tree.rmtree'` when publishing a differently named copy as the working tree. Publish additional trees under their own names.
 

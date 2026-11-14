@@ -68,6 +68,12 @@ class StoredMedia(Record):
     caption: str | None
     url: str | None
 
+    @property
+    def display_filename(self) -> str:
+        return (
+            Path((self.filename or "").replace("\\", "/")).name or f"Media #{self.id}"
+        )
+
 
 class MediaItem(Record):
     """Public media metadata without exposing local filesystem paths."""
@@ -168,6 +174,9 @@ def recorded_path(database: Path, media: StoredMedia) -> Path | None:
     """Resolve registered paths, using only mapped media roots when configured."""
     filename = media.filename or ""
     folder = (media.folder or "").replace("\\", "/")
+    if not folder and filename.startswith("/"):
+        recorded = Path(filename)
+        folder, filename = str(recorded.parent), recorded.name
     if (
         not filename
         or filename in (".", "..")
@@ -236,7 +245,7 @@ def event_media(
     return tuple(
         MediaItem(
             id=media.id,
-            filename=media.filename or f"Media #{media.id}",
+            filename=media.display_filename,
             caption=media.caption,
             available=resolved is not None,
             url=safe_url(media.url),
@@ -266,7 +275,7 @@ def owner_images(
                 continue
             images[media.id] = MediaItem(
                 id=media.id,
-                filename=media.filename or f"Media #{media.id}",
+                filename=media.display_filename,
                 caption=media.caption,
                 available=resolved is not None,
                 url=safe_url(media.url),
