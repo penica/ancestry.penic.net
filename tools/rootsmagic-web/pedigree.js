@@ -65,7 +65,7 @@ const fitView = document.querySelector("#pedigree-fit");
 const zoomLevel = document.querySelector("#pedigree-zoom-level");
 const fullScreen = document.querySelector("#pedigree-fullscreen");
 const branchExpansions = new Map();
-const collapsedPartners = new Set();
+const collapsedBranches = new Set();
 
 let treeRequest;
 let countRequest;
@@ -122,7 +122,8 @@ function captureChartView() {
     scrollLeft: viewport.scrollLeft,
     scrollTop: viewport.scrollTop,
     branches: [...branchExpansions].map(([key, branches]) => [key, [...branches.keys()]]),
-    collapsedPartners: [...collapsedPartners],
+    collapsedPartners: [],
+    collapsedBranches: [...collapsedBranches],
   };
 }
 
@@ -241,19 +242,20 @@ function stageNode(stage, person, role, branch, generation, key) {
 
 function visibleRoot(root, prefix = "") {
   const additions = new Map(
-    [...branchExpansions.values()].flatMap((branches) => [...branches]),
+    [...branchExpansions].flatMap(([key, branches]) => collapsedBranches.has(key) && !key.includes("/")
+      ? [] : [...branches]),
   );
   function visit(node, prefix, lineage) {
     const id = node.person.id;
     const key = prefix ? `${prefix}/${id}` : String(id);
     const record = node.has_more_parents ? additions.get(key) ?? node : node;
     const ancestors = new Set([...lineage, id]);
-    const parents = record.parents
-      .filter((parent) => !ancestors.has(parent.person.id))
-      .map((parent) => visit(parent, key, ancestors));
+    const availableParents = record.parents.filter((parent) => !ancestors.has(parent.person.id));
+    const canReopen = Boolean(prefix && availableParents.length && collapsedBranches.has(key));
+    const parents = canReopen ? [] : availableParents.map((parent) => visit(parent, key, ancestors));
     return {
-      ...record, key, parents,
-      has_more_parents: record.has_more_parents && !parents.length,
+      ...record, key, parents, canReopen,
+      has_more_parents: !canReopen && record.has_more_parents && !parents.length,
     };
   }
   return visit(root, prefix, new Set());
@@ -264,11 +266,16 @@ function partnerRootKey(id) {
 }
 
 function visiblePartnerRoots(data) {
-  const branches = branchExpansions.get(String(data.root.person.id));
-  if (!branches) return [];
+  const key = String(data.root.person.id);
+  if (collapsedBranches.has(key)) return [];
+  const branches = branchExpansions.get(key);
+  const coParents = new Set(childrenToggle.checked ? (data.child_families ?? []).map(({ partner }) => partner?.id) : []);
+  const withParents = new Set(data.partners_with_parents ?? []);
   return (data.partners ?? []).flatMap((person) => {
-    const record = branches.get(partnerRootKey(person.id));
-    return record ? [visibleRoot({ ...record, person }, "partner")] : [];
+    const record = branches?.get(partnerRootKey(person.id));
+    if (record) return [visibleRoot({ ...record, person }, "partner")];
+    if (!coParents.has(person.id)) return [];
+    return [visibleRoot({ person, parents: [], marriage: null, has_more_parents: withParents.has(person.id) }, "partner")];
   });
 }
 
@@ -307,29 +314,27 @@ function redrawBranch(key, before) {
   saveChartView();
 }
 
-async function toggleBranch(record, button, partners) {
+async function expandBranch(record, button, partners = []) {
   const before = button.getBoundingClientRect();
-  if (branchExpansions.delete(record.key)) {
-    redrawBranch(record.key, before);
-    return;
-  }
   branchRequest?.abort();
   const request = new AbortController();
   branchRequest = request;
   button.disabled = true;
+  const retained = branchExpansions.get(record.key);
   const frontier = [
     ...branchFrontier(record).map((node) => node.key),
     ...partners.map((person) => partnerRootKey(person.id)),
   ];
   if (frontier.length) treeStatus.textContent = "Loading more ancestors…";
   try {
-    const branches = await fetchBranches(frontier, request.signal);
+    const branches = await fetchBranches(frontier.filter((key) => !retained?.has(key)), request.signal);
     if (request.signal.aborted) return;
     if (!partners.length && ![...branches.values()].some((branch) => branch.parents.length)) {
       treeStatus.textContent = "No additional recorded ancestors in this branch.";
       return;
     }
-    branchExpansions.set(record.key, branches);
+    branchExpansions.set(record.key, new Map([...retained ?? [], ...branches]));
+    collapsedBranches.delete(record.key);
     treeStatus.textContent = "";
     redrawBranch(record.key, before);
   } catch (error) {
@@ -337,6 +342,13 @@ async function toggleBranch(record, button, partners) {
   } finally {
     button.disabled = false;
   }
+}
+
+function toggleRecordedBranch(record, button) {
+  const before = button.getBoundingClientRect();
+  if (record.parents.length) collapsedBranches.add(record.key);
+  else collapsedBranches.delete(record.key);
+  redrawBranch(record.key, before);
 }
 
 function attachBranchControl(graph, record, expanded, toggle) {
@@ -354,15 +366,7 @@ function attachBranchControl(graph, record, expanded, toggle) {
 function rootGraph(stage, data) {
   const root = stageNode(stage, data.root.person, "Starting person", null, 1, String(data.root.person.id));
   root.card.setAttribute("aria-current", "true");
-  const partnerRecords = new Map(visiblePartnerRoots(data).map((record) => [record.person.id, record]));
-  if (familyGroupsToggle.checked && childrenToggle.checked) {
-    for (const { partner } of data.child_families ?? []) {
-      if (partner && !partnerRecords.has(partner.id)) {
-        partnerRecords.set(partner.id, { person: partner, key: partnerRootKey(partner.id), parents: [] });
-      }
-    }
-  }
-  const partnerTrees = [...partnerRecords.values()].map((record) => ({
+  const partnerTrees = visiblePartnerRoots(data).map((record) => ({
     graph: stageNode(stage, record.person, "Partner", null, 1, record.key), record,
   }));
   const siblings = siblingsToggle.checked ? data.siblings.map(({ person, relationship }) => (
@@ -375,23 +379,22 @@ function rootGraph(stage, data) {
     levels.push(level.map(({ graph }) => graph));
     const next = [];
     for (const { graph, record } of level) {
-      if (depth === 0 && graph !== root) {
-        const collapsed = collapsedPartners.has(record.key);
-        if (record.parents.length) {
+      if (graph === root) {
+        const partners = data.partners ?? [];
+        if (branchExpansions.has(record.key)) {
+          const collapsed = collapsedBranches.has(record.key);
           attachBranchControl(graph, record, !collapsed, (button) => {
-            const before = button.getBoundingClientRect();
-            if (collapsed) collapsedPartners.delete(record.key);
-            else collapsedPartners.add(record.key);
-            redrawBranch(record.key, before);
+            if (collapsed) collapsedBranches.delete(record.key);
+            else collapsedBranches.add(record.key);
+            redrawBranch(record.key, button.getBoundingClientRect());
           });
+        } else if (partners.length || branchFrontier(record).length) {
+          attachBranchControl(graph, record, false, (button) => expandBranch(record, button, partners));
         }
-        if (collapsed) continue;
-      } else {
-        const partners = graph === root ? data.partners ?? [] : [];
-        const expanded = branchExpansions.has(record.key);
-        if (expanded || partners.length || branchFrontier(record).length) {
-          attachBranchControl(graph, record, expanded, (button) => toggleBranch(record, button, partners));
-        }
+      } else if (record.parents.length || record.canReopen) {
+        attachBranchControl(graph, record, Boolean(record.parents.length), (button) => toggleRecordedBranch(record, button));
+      } else if (record.has_more_parents) {
+        attachBranchControl(graph, record, false, (button) => expandBranch(record, button));
       }
       graph.marriage = record.marriage;
       graph.parents = record.parents.map((parent, index) => {
@@ -1101,8 +1104,9 @@ async function refreshBranches(data, signal) {
     if (removed || !resolved.length) branchExpansions.delete(key);
     else branchExpansions.set(key, new Map(resolved.map((path) => [path, updated.get(path)])));
   }
-  for (const key of collapsedPartners) {
-    if (!partnerKeys.has(key)) collapsedPartners.delete(key);
+  for (const key of collapsedBranches) {
+    const partner = key.match(/^partner\/\d+/)?.[0];
+    if (partner && !partnerKeys.has(partner)) collapsedBranches.delete(key);
   }
 }
 
@@ -1113,7 +1117,7 @@ async function loadTree(id, moveFocus = false, view = null, refresh = false) {
     closeResearchWorklist();
     resetPedigreeTools();
     branchExpansions.clear();
-    collapsedPartners.clear();
+    collapsedBranches.clear();
     if (view) {
       initialDepth.value = view.depth;
       childrenToggle.checked = view.children;
@@ -1125,7 +1129,9 @@ async function loadTree(id, moveFocus = false, view = null, refresh = false) {
       for (const [key, paths] of view.branches) {
         branchExpansions.set(key, new Map(paths.map((path) => [path, null])));
       }
-      for (const key of view.collapsedPartners) collapsedPartners.add(key);
+      for (const key of [...(view.collapsedPartners ?? []), ...(view.collapsedBranches ?? [])]) {
+        collapsedBranches.add(key);
+      }
     }
     chartData = null;
     resizeChart = null;

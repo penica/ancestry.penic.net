@@ -44,6 +44,7 @@ class ChartView(Record):
         tuple[tuple[BranchPath, BranchPaths], ...], Field(max_length=4096)
     ]
     collapsed_partners: Annotated[tuple[PartnerPath, ...], Field(max_length=4096)]
+    collapsed_branches: BranchPaths = ()
 
 
 class ChartLinkDraft(Record):
@@ -119,6 +120,9 @@ def public_chart_view(
                 ),
                 "collapsed_partners": tuple(
                     key for key in view.collapsed_partners if permitted(key)
+                ),
+                "collapsed_branches": tuple(
+                    key for key in view.collapsed_branches if permitted(key)
                 ),
             }
         )

@@ -142,6 +142,7 @@ class Pedigree(Record):
     siblings: tuple[Sibling, ...]
     children: tuple[PersonCard, ...]
     partners: tuple[PersonCard, ...] = ()
+    partners_with_parents: tuple[PersonID, ...] = ()
     partner_marriages: dict[PersonID, tuple[Fact, ...]] = Field(default_factory=dict)
     child_families: tuple[ChildFamily, ...] = ()
 
@@ -492,6 +493,11 @@ def read_pedigree(
         siblings=siblings,
         children=tuple(children_by_id[key] for key in sorted(children_by_id)),
         partners=tuple(partners_by_id.values()),
+        partners_with_parents=tuple(
+            partner.id
+            for partner in partners_by_id.values()
+            if branch(partner, 1, frozenset()).has_more_parents
+        ),
         partner_marriages=partner_marriages,
         child_families=tuple(child_families),
     )

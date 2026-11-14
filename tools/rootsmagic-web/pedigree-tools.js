@@ -242,15 +242,17 @@ async function downloadPedigree() {
   treeStatus.textContent = "Preparing the A0 roll PDF…";
   const snapshot = chartData;
   const id = snapshot.root.person.id;
+  const partnerRoots = visiblePartnerRoots(snapshot);
   try {
     const response = await fetch(treeURL(`${API}/print`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        chart: { ...snapshot, root: visibleRoot(snapshot.root), siblings: siblingsToggle.checked ? snapshot.siblings : [] },
-        show_children: document.querySelector("#pedigree-show-children").checked,
-        show_partners: branchExpansions.has(String(id)),
-        partner_roots: visiblePartnerRoots(snapshot).filter((root) => !collapsedPartners.has(root.key)),
+        chart: { ...snapshot, root: visibleRoot(snapshot.root), siblings: siblingsToggle.checked ? snapshot.siblings : [],
+          partners: partnerRoots.map((root) => root.person) },
+        show_children: childrenToggle.checked,
+        show_partners: Boolean(partnerRoots.length),
+        partner_roots: partnerRoots,
       }),
     });
     if (!response.ok) {

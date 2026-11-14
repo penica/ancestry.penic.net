@@ -63,6 +63,7 @@ def external_print_chart(
             )
 
         siblings = {sibling.person.id for sibling in requested.siblings}
+        visible_partners = {partner.id for partner in requested.partners}
         outlines = {partner.person.id: partner for partner in partner_roots}
         return (
             current.model_copy(
@@ -72,6 +73,11 @@ def external_print_chart(
                         sibling
                         for sibling in current.siblings
                         if sibling.person.id in siblings
+                    ),
+                    "partners": tuple(
+                        partner
+                        for partner in current.partners
+                        if not visible_partners or partner.id in visible_partners
                     ),
                 }
             ),
