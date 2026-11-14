@@ -39,24 +39,25 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ title }} · RootsMagic Reader</title>
-  <link rel="stylesheet" href="/reader.css">
-  <link rel="stylesheet" href="/reader-accounts.css">
+  <link rel="stylesheet" href="{{ asset('reader.css') }}">
+  <link rel="stylesheet" href="{{ asset('reader-accounts.css') }}">
   {% if pedigree_record and record %}
-  <link rel="stylesheet" href="/family.css">
-  <link rel="stylesheet" href="/image-preview.css">
-  <script defer src="/image-preview.js"></script>
+  <link rel="stylesheet" href="{{ asset('family.css') }}">
+  <link rel="stylesheet" href="{{ asset('image-preview.css') }}">
+  <script defer src="{{ asset('image-preview.js') }}"></script>
   {% endif %}
 </head>
 <body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
   {% include "reader-masthead.html" %}
-  <main class="shell reading">
+  <main class="shell reading" id="main-content" tabindex="-1">
     {% if result %}
       <h1>People</h1>
       <form action="/people" method="get" role="search">
         <input type="hidden" name="tree" value="{{ tree.slug }}">
         <label for="q">Name or RootsMagic ID</label>
         <div class="search">
-          <input id="q" name="q" type="search" value="{{ q }}" maxlength="160" placeholder="Name or ID">
+          <input id="q" name="q" type="search" value="{{ q }}" maxlength="160" placeholder="e.g. Penič">
           <button type="submit">Search</button>
         </div>
       </form>

@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from functools import cache
 from hashlib import sha256
 from secrets import token_urlsafe
+from time import time
 from typing import TYPE_CHECKING, Annotated, Final, Literal
 
 from fastapi import HTTPException
@@ -19,7 +20,7 @@ from pedigree_store import (
     pedigree_details,
     read_parent_family,
 )
-from reader_tree_state import initialize, initialized
+from reader_tree_state import initialize, initialized, require_active_reader
 from store import PersonID, Record, connect
 
 if TYPE_CHECKING:
@@ -155,7 +156,7 @@ def read_shared_chart(tree: Tree, link: ChartLink) -> tuple[ChartLink, bool]:
 class ChartLinks:
     state: TreeState
 
-    def create(self, tree: Tree, draft: ChartLinkDraft) -> ChartLinkURL:
+    def create(self, tree: Tree, draft: ChartLinkDraft, owner: int = 0) -> ChartLinkURL:
         revision = record_revision(tree, draft.person_id)
         if revision is None:
             raise HTTPException(
@@ -170,6 +171,7 @@ class ChartLinks:
         token = token_urlsafe(18)
         with self.state.connect(write=True) as db:
             initialize(db)
+            require_active_reader(db, owner)
             db.execute("""CREATE TABLE IF NOT EXISTS chart_links (
                 token TEXT PRIMARY KEY, tree_slug TEXT NOT NULL, person_id INTEGER NOT NULL,
                 revision TEXT NOT NULL, view TEXT NOT NULL,
@@ -183,9 +185,24 @@ class ChartLinks:
                 db.execute(
                     "ALTER TABLE chart_links ADD COLUMN source_external INTEGER NOT NULL DEFAULT 0"
                 )
+            if "owner" not in columns:
+                db.execute("ALTER TABLE chart_links ADD COLUMN owner INTEGER")
+                db.execute("ALTER TABLE chart_links ADD COLUMN created_at INTEGER")
             db.execute(
-                """INSERT INTO chart_links (token, tree_slug, person_id, revision, view, public_revision, source_external)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                "CREATE INDEX IF NOT EXISTS chart_links_owner ON chart_links(owner, created_at)"
+            )
+            now = int(time())
+            count, hourly = db.execute(
+                "SELECT count(*), sum(created_at > ?) FROM chart_links WHERE owner = ?",
+                (now - 3600, owner),
+            ).fetchone()
+            if count >= 1000 or (hourly or 0) >= 30:
+                raise HTTPException(
+                    status_code=429, detail="The shared chart limit has been reached."
+                )
+            db.execute(
+                """INSERT INTO chart_links (token, tree_slug, person_id, revision, view, public_revision, source_external, owner, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     token,
                     tree.slug,
@@ -194,6 +211,8 @@ class ChartLinks:
                     view.model_dump_json(by_alias=True),
                     public_revision,
                     tree.external,
+                    owner,
+                    now,
                 ),
             )
         return ChartLinkURL(path=f"/pedigree/share/{token}")

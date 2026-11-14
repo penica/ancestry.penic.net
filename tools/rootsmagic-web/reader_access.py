@@ -36,9 +36,7 @@ PUBLIC_PATHS: Final = frozenset(
         "/login/passkey/options",
         "/login/passkey/verify",
         "/invite",
-        "/reader.css",
-        "/reader-accounts.css",
-        "/reader-passkeys.js",
+        "/robots.txt",
     }
 )
 SAFE_METHODS: Final = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -152,12 +150,18 @@ class ReaderAccess:
 
     async def guard(self, request: Request) -> Response | None:
         """Authenticate before the application can read protected tree data."""
-        if self.accounts is None or request.url.path in PUBLIC_PATHS:
+        api = request.url.path.startswith("/api/")
+        if self.accounts is None:
+            if not self.local_browser(request):
+                return failure(
+                    "The local reader accepts loopback connections only.", 403, api=api
+                )
+            return None
+        if request.url.path in PUBLIC_PATHS:
             return None
         if request.method == "GET" and request.url.path == LOOKUP_PATH:
             # The integration route authenticates the key and checks its tree grant.
             return None
-        api = request.url.path.startswith("/api/")
         try:
             session = await run_in_threadpool(
                 self.accounts.session, request.cookies.get(SESSION_COOKIE)

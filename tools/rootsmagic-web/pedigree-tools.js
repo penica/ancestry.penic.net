@@ -256,8 +256,8 @@ async function downloadPedigree() {
       }),
     });
     if (!response.ok) {
-      const body = await response.json();
-      throw new Error(typeof body.detail === "string" ? body.detail : "Could not create the PDF.");
+      const body = await response.json().catch(() => null);
+      throw new Error(typeof body?.detail === "string" ? body.detail : "Could not create the PDF.");
     }
     const url = URL.createObjectURL(await response.blob());
     const link = element("a");

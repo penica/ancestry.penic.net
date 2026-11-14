@@ -2,9 +2,8 @@
 {% block title %}Accept invitation{% endblock %}
 {% block content %}
 <h1>Accept invitation</h1>
-{% if token %}
+{% if username %}
 <form class="account-form" action="/invite" method="post">
-  <input type="hidden" name="token" value="{{ token }}">
   {% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token }}">{% endif %}
   {% if username %}
   <div class="account-field">

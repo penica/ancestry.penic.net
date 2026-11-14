@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from cryptography.fernet import Fernet
+    from reader_tree_state import TreeState
 
 AccountID = NewType("AccountID", int)
 ProfileField = Literal["name", "username", "email", "password"]
@@ -80,6 +81,10 @@ REQUIRED_TABLES: Final = frozenset(
         "reader_passkey_challenges",
     }
 )
+ACCOUNT_ID_FLOOR: Final = """
+CREATE TABLE IF NOT EXISTS reader_account_id_floor (
+    id INTEGER PRIMARY KEY CHECK (id = 1), last_account_id INTEGER NOT NULL
+)"""
 SCHEMA: Final = f"""
 CREATE TABLE IF NOT EXISTS reader_mail_settings (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -103,6 +108,7 @@ CREATE TABLE IF NOT EXISTS reader_accounts (
     disabled INTEGER NOT NULL DEFAULT 0 CHECK (disabled IN (0, 1)),
     display_name TEXT, email TEXT
 );
+{ACCOUNT_ID_FLOOR};
 {MEMBERSHIPS};
 CREATE TABLE IF NOT EXISTS reader_person_links (
     account_id INTEGER NOT NULL REFERENCES reader_accounts(id) ON DELETE CASCADE,
@@ -401,6 +407,15 @@ def _account_row(db: sqlite3.Connection, account_id: AccountID) -> sqlite3.Row:
     return row
 
 
+def _next_account_id(db: sqlite3.Connection) -> int:
+    """Never assign a removed account's ID to a new invitation recipient."""
+    db.execute(ACCOUNT_ID_FLOOR)
+    return db.execute("""SELECT max(coalesce((SELECT max(id) FROM reader_accounts), 0),
+        coalesce((SELECT last_account_id FROM reader_account_id_floor WHERE id = 1), 0)) + 1""").fetchone()[
+        0
+    ]
+
+
 def _require_admin(db: sqlite3.Connection, account_id: AccountID) -> None:
     row = _account_row(db, account_id)
     if row["disabled"] or not row["administrator"]:
@@ -542,11 +557,15 @@ class Accounts:
         return self.mfa_key_file is not None
 
     @contextmanager
-    def _connect(self, *, write: bool = False) -> Iterator[sqlite3.Connection]:
+    def _connect(
+        self, *, write: bool = False, tree_state: TreeState | None = None
+    ) -> Iterator[sqlite3.Connection]:
         uri = f"{self.path.resolve().as_uri()}?mode=rw"
         with closing(sqlite3.connect(uri, uri=True, timeout=5)) as db, db:
             db.row_factory = sqlite3.Row
             db.execute("PRAGMA foreign_keys = ON")
+            if tree_state is not None:
+                tree_state.attach(db)
             db.execute("BEGIN IMMEDIATE" if write else "BEGIN")
             yield db
 
@@ -687,6 +706,7 @@ class Accounts:
         client: bytes | None,
         *,
         limits: tuple[int, int] | None = None,
+        account_ceiling: tuple[bytes, int] | None = None,
     ) -> None:
         if limits is None:
             security = site_settings(settings_path(self.path)).security
@@ -696,7 +716,10 @@ class Accounts:
             db.execute(
                 "DELETE FROM reader_login_attempts WHERE expires_at <= ?", (now,)
             )
-            for bucket, limit in zip((client, user), limits, strict=True):
+            buckets = list(zip((client, user), limits, strict=True))
+            if account_ceiling is not None:
+                buckets.append(account_ceiling)
+            for bucket, limit in buckets:
                 if bucket is None:
                     continue
                 row = db.execute(
@@ -724,8 +747,19 @@ class Accounts:
         except AccountsError:
             password_bytes = b""
         user, client = _digest(f"user:{username}"), client_bucket("client", client_key)
+        pair = _digest(f"password:{username}|{client_key}") if client else user
+        security = site_settings(settings_path(self.path)).security
+        ceiling = security.account_attempts * 10
         with _password_slot():
-            self._reserve_attempt(user, client)
+            self._reserve_attempt(
+                pair,
+                client,
+                limits=(
+                    security.address_attempts,
+                    security.account_attempts if client else ceiling,
+                ),
+                account_ceiling=(user, ceiling) if client else None,
+            )
             with self._connect() as db:
                 row = db.execute(
                     "SELECT * FROM reader_accounts WHERE username = ?",
@@ -739,14 +773,21 @@ class Accounts:
         if row is None or row["disabled"] or not valid:
             return None
         with self._connect(write=True) as db:
-            current = _account_row(db, AccountID(row["id"]))
+            current = db.execute(
+                "SELECT * FROM reader_accounts WHERE id = ?", (row["id"],)
+            ).fetchone()
             if (
-                current["disabled"]
+                current is None
+                or current["disabled"]
                 or current["username"] != username
                 or current["password_hash"] != expected
             ):
                 return None
-            _clear_attempts(db, user, client)
+            _clear_attempts(db, pair, client)
+            if pair != user:
+                db.execute(
+                    "DELETE FROM reader_login_attempts WHERE bucket = ?", (user,)
+                )
             if _mfa_enabled(db, current["id"]):
                 return _issue_login_challenge(db, current)
             return _issue_session(db, _read_account(db, current))
@@ -796,8 +837,8 @@ class Accounts:
     ) -> tuple[sqlite3.Row, bytes, bytes | None]:
         with self._connect() as db:
             original = _require_session_row(db, token_hash)
-        user = _digest(f"user:{original['username']}")
-        client = client_bucket("client", client_key)
+        user = _digest(f"current-password:user:{original['id']}")
+        client = client_bucket("current-password:client", client_key)
         with _password_slot():
             self._reserve_attempt(user, client)
             try:
@@ -1127,8 +1168,9 @@ class Accounts:
                 raise AccountsError(message)
             invitation = _read_invitation(row)
             account = db.execute(
-                "INSERT INTO reader_accounts(username, salt, password_hash, administrator) VALUES (?, ?, ?, ?) RETURNING *",
+                "INSERT INTO reader_accounts(id, username, salt, password_hash, administrator) VALUES (?, ?, ?, ?, ?) RETURNING *",
                 (
+                    _next_account_id(db),
                     invitation.username,
                     salt,
                     password_hash,
@@ -1206,6 +1248,28 @@ class Accounts:
                 "UPDATE reader_accounts SET disabled = ? WHERE id = ?",
                 (disabled, account_id),
             )
+
+    def delete_account(
+        self, actor: AccountID, target: AccountID, state: TreeState
+    ) -> None:
+        """Erase an account and its identified contributions, retaining the last admin."""
+        from reader_tree_state import erase_reader_data
+
+        with self._connect(write=True, tree_state=state) as db:
+            _require_admin(db, actor)
+            if actor == target:
+                raise AccountsError("Ask another administrator to delete your account.")
+            row = _account_row(db, target)
+            _keep_admin(db, row)
+            _next_account_id(db)
+            db.execute("PRAGMA secure_delete = ON")
+            db.execute(
+                """INSERT INTO reader_account_id_floor (id, last_account_id) VALUES (1, ?)
+                ON CONFLICT(id) DO UPDATE SET last_account_id = max(last_account_id, excluded.last_account_id)""",
+                (target,),
+            )
+            db.execute("DELETE FROM reader_accounts WHERE id = ?", (target,))
+            erase_reader_data(db, target)
 
     def set_administrator(
         self, actor_id: AccountID, account_id: AccountID, administrator: bool

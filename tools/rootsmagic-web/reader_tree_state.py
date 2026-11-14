@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
+from fastapi import HTTPException
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -47,12 +49,13 @@ def comments_path(accounts_path: Path | None) -> Path:
     return data / "comments.sqlite3"
 
 
-def initialized(db: sqlite3.Connection) -> bool:
+def initialized(db: sqlite3.Connection, *, attached: bool = False) -> bool:
     """Accept our database or an untouched file left by an earlier startup."""
-    app_id: int = db.execute("PRAGMA application_id").fetchone()[0]
+    schema = "tree_state" if attached else "main"
+    app_id: int = db.execute(f"PRAGMA {schema}.application_id").fetchone()[0]
     if app_id == APPLICATION_ID:
         return True
-    if app_id or db.execute("SELECT 1 FROM sqlite_schema LIMIT 1").fetchone():
+    if app_id or db.execute(f"SELECT 1 FROM {schema}.sqlite_schema LIMIT 1").fetchone():  # noqa: S608
         message = "Choose a separate database for reader comments."
         raise CommentStorageError(message)
     return False
@@ -67,14 +70,57 @@ def initialize(db: sqlite3.Connection) -> None:
     db.execute(f"PRAGMA application_id = {APPLICATION_ID}")  # noqa: S608
 
 
+def erase_reader_data(db: sqlite3.Connection, owner: int) -> None:
+    """Erase data in the attached store as part of the account deletion transaction."""
+    if not initialized(db, attached=True):
+        db.execute(CREATE_COMMENTS.replace("TABLE comments", "TABLE tree_state.comments"))
+        db.execute(
+            "CREATE INDEX tree_state.comments_person ON comments (tree_slug, person_id, id)"
+        )
+        db.execute(f"PRAGMA tree_state.application_id = {APPLICATION_ID}")
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS tree_state.deleted_readers (owner INTEGER PRIMARY KEY)"
+    )
+    db.execute("INSERT OR IGNORE INTO tree_state.deleted_readers VALUES (?)", (owner,))
+    db.execute("PRAGMA tree_state.secure_delete = ON")
+    for table in ("follow_ups", "saved_charts", "chart_links", "comments"):
+        columns = {
+            column["name"]
+            for column in db.execute(f"PRAGMA tree_state.table_info({table})")
+        }
+        if table == "comments" and "author_id" in columns:
+            db.execute(
+                """UPDATE tree_state.comments SET author = 'Former member', author_id = NULL
+                   WHERE author_id = ?""",
+                (owner,),
+            )
+        elif "owner" in columns:
+            db.execute(f"DELETE FROM tree_state.{table} WHERE owner = ?", (owner,))  # noqa: S608
+
+
+def require_active_reader(db: sqlite3.Connection, owner: int) -> None:
+    """Reject writes already in flight when the account was removed."""
+    if (
+        owner
+        and db.execute(
+            "SELECT 1 FROM sqlite_schema WHERE name = 'deleted_readers'"
+        ).fetchone()
+        and db.execute(
+            "SELECT 1 FROM deleted_readers WHERE owner = ?", (owner,)
+        ).fetchone()
+    ):
+        raise HTTPException(
+            status_code=401, detail="This reader account has been deleted."
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class TreeState:
     """Open a private reader database in one read or write transaction."""
 
     path: Path
 
-    @contextmanager
-    def connect(self, *, write: bool) -> Iterator[sqlite3.Connection]:
+    def _uri(self, *, write: bool) -> str:
         if self.path.suffix.lower() == ".rmtree":
             message = "Choose a separate database for reader comments."
             raise CommentStorageError(message)
@@ -90,16 +136,31 @@ class TreeState:
                 message = "The comments database must be a private regular file."
                 raise CommentStorageError(message)
             access = "rw" if write else "ro"
-            uri = f"{self.path.absolute().as_uri()}?mode={access}"
+            return f"{self.path.absolute().as_uri()}?mode={access}"
+        except FileNotFoundError:
+            if not write:
+                raise
+            raise CommentStorageError("Comments are temporarily unavailable.") from None
+        except OSError as error:
+            raise CommentStorageError("Comments are temporarily unavailable.") from error
+
+    def attach(self, db: sqlite3.Connection) -> None:
+        """Attach state before an atomic transaction across both private stores."""
+        db.execute("ATTACH DATABASE ? AS tree_state", (self._uri(write=True),))
+        for schema in ("main", "tree_state"):
+            if db.execute(f"PRAGMA {schema}.journal_mode").fetchone()[0] != "delete":
+                raise CommentStorageError(
+                    "Account deletion requires rollback journals on both reader databases."
+                )
+
+    @contextmanager
+    def connect(self, *, write: bool) -> Iterator[sqlite3.Connection]:
+        uri = self._uri(write=write)
+        try:
             with closing(sqlite3.connect(uri, uri=True, timeout=5)) as db, db:
                 db.row_factory = sqlite3.Row
                 db.execute("BEGIN IMMEDIATE" if write else "BEGIN")
                 yield db
-        except FileNotFoundError:
-            if not write:
-                raise
-            message = "Comments are temporarily unavailable."
-            raise CommentStorageError(message) from None
-        except (OSError, sqlite3.Error) as error:
+        except sqlite3.Error as error:
             message = "Comments are temporarily unavailable."
             raise CommentStorageError(message) from error

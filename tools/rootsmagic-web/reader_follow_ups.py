@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from pydantic import ConfigDict, Field, StringConstraints
 
 from pedigree_research import Missing, research_gaps
-from reader_tree_state import initialize, initialized
+from reader_tree_state import initialize, initialized, require_active_reader
 from store import PersonID, Record
 
 if TYPE_CHECKING:
@@ -96,6 +96,7 @@ class FollowUps:
         label = gap_label(tree, draft)
         with self.state.connect(write=True) as db:
             initialize(db)
+            require_active_reader(db, owner)
             db.execute(CREATE_FOLLOW_UPS)
             row = db.execute(
                 """INSERT INTO follow_ups (owner, tree_slug, person_id, gap, label)

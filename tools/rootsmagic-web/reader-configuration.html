@@ -68,6 +68,7 @@
     <dt>Last verified backup</dt>
     <dd>{% if latest %}<time datetime="{{ latest.verified_at.isoformat() }}">{{ latest.verified_at.strftime('%d %b %Y, %H:%M UTC') }}</time>{% else %}Waiting for a verified backup{% endif %}</dd>
     {% if latest %}<dt>Included</dt><dd>Accounts and encryption key{% if latest.comments %}, comments{% endif %}{% if latest.settings %}, reader settings{% endif %}</dd>{% endif %}
+    {% if latest %}<dt>Encrypted NAS copy</dt><dd>{{ 'Created' if latest.off_host else 'Unavailable' }}</dd>{% endif %}
   </dl>
 </section>
 {% endif %}

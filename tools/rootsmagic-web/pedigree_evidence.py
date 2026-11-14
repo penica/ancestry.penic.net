@@ -193,6 +193,8 @@ def recorded_path(database: Path, media: StoredMedia) -> Path | None:
     try:
         if (config := os.environ.get("ROOTSMAGIC_MEDIA_MAP")) is not None:
             resolved = mapped_media_path(directory, filename, config)
+        elif os.environ.get("ROOTSMAGIC_ACCOUNTS_DB"):
+            return None
         else:
             local = (
                 directory if directory.is_absolute() else database.parent / directory

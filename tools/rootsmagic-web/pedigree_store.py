@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from functools import cache
+from functools import cache, lru_cache
 from html.parser import HTMLParser
 from itertools import groupby
 from typing import TYPE_CHECKING, Final, Literal, NewType
@@ -296,6 +296,7 @@ class NoteText(HTMLParser):
             self.parts.append(data.strip("\r\n"))
 
 
+@lru_cache(maxsize=128)
 def plain_note(note: str | None) -> str | None:
     """Convert legacy RTF notes for display, preserving the source on failure."""
     if not note or not note.lstrip().startswith(r"{\rtf"):

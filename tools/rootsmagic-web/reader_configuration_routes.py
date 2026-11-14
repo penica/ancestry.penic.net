@@ -53,6 +53,7 @@ class BackupStatus(SettingsModel):
     verified_at: datetime
     comments: bool = False
     settings: bool = False
+    off_host: bool = False
 
 
 def backup_status() -> BackupStatus | None:

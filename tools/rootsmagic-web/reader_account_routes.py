@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Final
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from reader_access import (
@@ -38,6 +37,7 @@ from reader_mfa_routes import mfa_router, start_mfa_login
 from reader_passkey_routes import passkey_router, passkeys_available
 from reader_person_routes import person_router, read_tree_person
 from reader_system_routes import system_router
+from reader_tree_state import TreeState, comments_path
 from tree_catalog import available_trees
 
 if TYPE_CHECKING:
@@ -49,6 +49,7 @@ PROFILE_NOTICES: Final = {
     "email": "Email saved.",
     "password": "Password changed. Other sessions were signed out.",
 }
+INVITATION_COOKIE: Final = "__Host-rootsmagic-invitation"
 
 
 def configured_tree(slug: str) -> str:
@@ -177,18 +178,6 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
             status_code=status,
         )
 
-    @router.get("/reader-accounts.css")
-    def styles() -> FileResponse:
-        return FileResponse(
-            Path(__file__).with_name("reader-accounts.css"), media_type="text/css"
-        )
-
-    @router.get("/reader-profile.css")
-    def profile_styles() -> FileResponse:
-        return FileResponse(
-            Path(__file__).with_name("reader-profile.css"), media_type="text/css"
-        )
-
     @router.get("/account")
     def account_settings(
         request: Request,
@@ -278,7 +267,7 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
                 return start_mfa_login(issued, destination)
             audit("sign_in", "ok", actor=issued.session.account.id)
             return signed_in(issued, destination)
-        audit("sign_in", "limited" if status == 429 else "denied")
+        audit("sign_in", "limited" if status == 429 else "denied", visitor=client)
         response = form_page(
             request,
             "reader-login.html",
@@ -294,8 +283,16 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
     @router.get("/invite")
     def invitation_page(
         request: Request, token: Annotated[str, Query(max_length=128)] = ""
-    ) -> HTMLResponse:
-        invite = access.store().invitation(token)
+    ) -> Response:
+        store = access.store()
+        if token:
+            response = RedirectResponse("/invite", status_code=303)
+            response.set_cookie(
+                INVITATION_COOKIE, token, max_age=900,
+                secure=True, httponly=True, samesite="lax",
+            )
+            return response
+        invite = store.invitation(request.cookies.get(INVITATION_COOKIE, ""))
         if invite is None:
             return form_page(
                 request,
@@ -304,14 +301,14 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
                 error="This invitation is unavailable.",
             )
         return form_page(
-            request, "reader-invitation.html", token=token, username=invite.username
+            request, "reader-invitation.html", username=invite.username
         )
 
     @router.post("/invite")
     async def redeem(request: Request) -> Response:
         store = access.store()
         form = await sign_in_form(access, request)
-        token = form.get("token", "")
+        token = request.cookies.get(INVITATION_COOKIE, "")
         invite = await run_in_threadpool(store.invitation, token)
         if invite is None:
             return form_page(
@@ -329,17 +326,20 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
             return form_page(
                 request,
                 "reader-invitation.html",
-                token=token,
                 username=invite.username,
                 error=str(error),
                 status=400,
             )
         await run_in_threadpool(store.logout, request.cookies.get(SESSION_COOKIE, ""))
         audit("invitation_redeemed", "ok", actor=issued.session.account.id)
-        return signed_in(
+        response = signed_in(
             issued,
             "/system/accounts" if issued.session.account.administrator else "/pedigree",
         )
+        response.delete_cookie(
+            INVITATION_COOKIE, secure=True, httponly=True, samesite="lax"
+        )
+        return response
 
     @router.post("/logout")
     async def logout(request: Request) -> RedirectResponse:
@@ -467,6 +467,25 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
         except AccountsError as error:
             return await admin_page(request, error=str(error))
         audit("invitation_revoked", "ok", actor=actor, target=invitation_id)
+        return RedirectResponse("/system/accounts", status_code=303)
+
+    @router.post("/admin/account/{account_id}/delete")
+    async def delete_account(request: Request, account_id: int) -> Response:
+        form = await admin_form(request)
+        actor = require_admin(request).account.id
+        store = access.store()
+        if form.get("confirmation") != "delete":
+            return await admin_page(request, error="Confirm the account deletion.")
+        try:
+            await run_in_threadpool(
+                store.delete_account,
+                actor,
+                account_id,
+                TreeState(comments_path(store.path)),
+            )
+        except AccountsError as error:
+            return await admin_page(request, error=str(error))
+        audit("account_deleted", "ok", actor=actor, target=account_id)
         return RedirectResponse("/system/accounts", status_code=303)
 
     return router

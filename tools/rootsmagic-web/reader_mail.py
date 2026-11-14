@@ -60,6 +60,8 @@ class SMTPSettings(Record):
                 raise MailError("Choose whether to use SMTP authentication.")
         if not HOST.fullmatch(host) or not valid_host(host):
             raise MailError("Enter an SMTP hostname or IP address.")
+        if authenticate and form.get("security") == "none":
+            raise MailError("Choose STARTTLS or TLS before using SMTP authentication.")
         if authenticate and (
             not username
             or len(username) > 254
@@ -231,6 +233,8 @@ class Mail:
         message["To"] = recipient
         message["Subject"] = subject
         message.set_content(text)
+        if settings.security == "none" and plain is not None:
+            raise MailError("Choose STARTTLS or TLS before sending an SMTP password.")
         if not SMTP_WORK.acquire(blocking=False):
             raise MailError("The email server is busy. Try again shortly.")
         try:

@@ -1,6 +1,8 @@
 """Record security outcomes without storing request data or personal information."""
 
 import logging
+from hashlib import sha256
+from secrets import token_bytes
 from typing import Final, Literal
 
 AuditEvent = Literal[
@@ -11,6 +13,7 @@ AuditEvent = Literal[
     "invitation_revoked",
     "account_access_changed",
     "account_status_changed",
+    "account_deleted",
     "profile_changed",
     "mfa_changed",
     "passkey_changed",
@@ -25,6 +28,7 @@ AuditEvent = Literal[
 ]
 AuditOutcome = Literal["ok", "denied", "limited", "failed"]
 LOG: Final = logging.getLogger("uvicorn.error")
+VISITOR_SALT: Final = token_bytes(32)
 
 
 def audit(
@@ -33,12 +37,15 @@ def audit(
     *,
     actor: int | None = None,
     target: int | None = None,
+    visitor: str | None = None,
 ) -> None:
     """Log only allowlisted event fields and internal account or invitation IDs."""
+    visitor_id = sha256(VISITOR_SALT + visitor.encode()).hexdigest()[:16] if visitor else None
     LOG.info(
-        "reader_audit event=%s outcome=%s actor=%s target=%s",
+        "reader_audit event=%s outcome=%s actor=%s target=%s visitor=%s",
         event,
         outcome,
         actor,
         target,
+        visitor_id,
     )

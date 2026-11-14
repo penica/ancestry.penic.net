@@ -128,23 +128,24 @@ def mfa_router(access: ReaderAccess, templates: Environment) -> APIRouter:
         challenge = request.cookies.get(MFA_COOKIE)
         if not challenge:
             return RedirectResponse("/login", status_code=303)
+        visitor = access.client_address(request)
         try:
             issued = await run_in_threadpool(
                 store.complete_mfa,
                 challenge,
-                access.client_address(request),
+                visitor,
                 form.get("code", ""),
             )
         except LoginThrottled as error:
-            audit("sign_in", "limited")
+            audit("sign_in", "limited", visitor=visitor)
             response = login_form(request, destination, error=str(error), status=429)
             response.headers["Retry-After"] = str(error.retry_after)
             return response
         except AccountsError as error:
-            audit("sign_in", "failed")
+            audit("sign_in", "failed", visitor=visitor)
             return login_form(request, destination, error=str(error), status=503)
         if issued is None:
-            audit("sign_in", "denied")
+            audit("sign_in", "denied", visitor=visitor)
             return login_form(
                 request,
                 destination,

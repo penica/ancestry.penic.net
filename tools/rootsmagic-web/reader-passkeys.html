@@ -1,6 +1,6 @@
 {% extends "reader-account-shell.html" %}
 {% block title %}Passkeys{% endblock %}
-{% block extra_styles %}{% if passkeys_available %}<script defer src="/reader-passkeys.js"></script>{% endif %}{% endblock %}
+{% block extra_styles %}{% if passkeys_available %}<script defer src="{{ asset('reader-passkeys.js') }}"></script>{% endif %}{% endblock %}
 
 {% macro confirm_fields(prefix) %}
   <div class="account-field">

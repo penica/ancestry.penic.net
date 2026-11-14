@@ -4,7 +4,7 @@
 {% set selected_person = person_summary|default('', true) %}
 {% set heading = 'Change password' if field == 'password' else 'Edit ' ~ labels[field]|lower if field else 'Account settings' %}
 {% block title %}{{ heading }}{% endblock %}
-{% block extra_styles %}<link rel="stylesheet" href="/reader-profile.css">{% endblock %}
+{% block extra_styles %}<link rel="stylesheet" href="{{ asset('reader-profile.css') }}">{% endblock %}
 {% block page_size %}profile-reading{% endblock %}
 
 {% block content %}

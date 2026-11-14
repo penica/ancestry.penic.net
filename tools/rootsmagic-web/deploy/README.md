@@ -16,7 +16,8 @@ The reader is a private browser and API for published copies of the RootsMagic t
 | `/srv/rootsmagic-reader/state/comments.sqlite3` | Reader comments, follow-ups, shared charts, and private named charts |
 | `/srv/rootsmagic-reader/state/publisher.json` | Optional per-file tree slug and local Registers database for counting references in preview |
 | `/srv/rootsmagic-reader/state/settings.json` | Saved tree, chart, security, and backup settings |
-| `/srv/rootsmagic-reader/state-backups/` | Private daily account, comment, and encryption-key backups |
+| `/srv/rootsmagic-reader/state-backups/` | Local copies of encrypted daily reader-state backups |
+| `/mnt/registers-archive/Backups/ancestry-server/rootsmagic-reader/encrypted/` | Encrypted reader-state backups on the NAS |
 | `/srv/rootsmagic-reader/backup-status/latest.json` | The last verified backup’s timestamp and included file types |
 | `/etc/rootsmagic-reader/mfa.key` | Root-owned key protecting authenticator secrets |
 | `/mnt/registers-archive/Books/` | Existing NAS book archive |
@@ -44,7 +45,13 @@ The service sets `ROOTSMAGIC_REQUIRE_ACCOUNTS=1` in its launch command. The read
 
 The first comment creates a private SQLite database beside the VM account database. Include it in state backups. Set `ROOTSMAGIC_COMMENTS_DB` to override its path. Comments stay on the reader that created them and survive publication of a new snapshot with the same tree slug and person IDs.
 
-The daily `rootsmagic-reader-state-backup.timer` runs SQLite’s online backup. **System settings → Backups** shows the last verified run and sets how many snapshots to keep, with a default of 14. Run `sudo systemctl start rootsmagic-reader-state-backup.service` to take one immediately. Each snapshot includes the account database, the encryption key, and comments and saved reader settings once created. The app can read the status file. The backup files are private to the VM operator. Copy a selected backup to an isolated preview to check recovery. A restored reader must use the corresponding account database and key together, and retain the tree slugs used by the comments.
+The daily `rootsmagic-reader-state-backup.timer` runs SQLite’s online backup. **System settings → Backups** shows the last verified run, whether it reached the encrypted destination, and how many snapshots to keep. The default is 14. Run `sudo systemctl start rootsmagic-reader-state-backup.service` to take one immediately. The archive contains the accounts database and its matching authenticator encryption key, plus reader state and settings if present. It does not contain the RootsMagic tree or source images.
+
+Install `age` on the VM. Set `ROOTSMAGIC_BACKUP_RECIPIENT`, `ROOTSMAGIC_ENCRYPTED_BACKUP_DIR`, and `ROOTSMAGIC_ENCRYPTED_BACKUP_MOUNT` in the root-owned `/etc/rootsmagic-reader/backup.env`. Put only the public recipient in that file. Keep the matching private recovery key off the VM and save a separate copy away from the Mac. Add the mount to the backup service’s `RequiresMountsFor` and the encrypted destination to its `ReadWritePaths`. The backup fails if the configured NAS mount is absent.
+
+Rehearse recovery in a private working directory using a trusted archive. Decrypt and extract with `age --decrypt -i "$recovery_key" "$archive" | tar -xf - -C "$restore_dir"`. Run SQLite `PRAGMA quick_check` on each database and verify sign-in in an isolated preview with the matching `mfa.key` and tree slugs. A restored account store can revive accounts, invitations, sessions, and API keys that existed when the snapshot was taken. Review these before putting a restore into service.
+
+Keep one Uvicorn worker. The PDF and large-query limits are maintained in memory. Before switching `current` to a new release, run `bash deploy/check-release.sh "$PWD/.venv/bin/python"` from the candidate release. The suite uses temporary databases. Check the hosted sign-in page and a signed-out API request after restarting the service.
 
 Set `ROOTSMAGIC_SETTINGS_FILE` to an absolute private JSON file to override the saved settings location. Keep `ROOTSMAGIC_BACKUP_STATUS_FILE` consistent between the reader and the backup service. The default status directory is owned by root and readable by the reader group.
 

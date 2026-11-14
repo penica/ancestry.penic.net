@@ -376,6 +376,8 @@ button.reset { cursor: pointer; }
   clip-path: inset(50%);
   white-space: nowrap;
 }
+.skip-link { position: fixed; inset: var(--s2) auto auto var(--s2); z-index: 12; padding: var(--s2); background: var(--surface); }
+.skip-link:not(:focus) { clip-path: inset(50%); }
 
 .person-details {
   position: fixed;

@@ -1,6 +1,6 @@
 {% extends "reader-system.html" %}
 {% block title %}Email server · System settings{% endblock %}
-{% block extra_styles %}<script defer src="/system/email/port.js"></script>{% endblock %}
+{% block extra_styles %}<script defer src="{{ asset('reader-email-settings.js') }}"></script>{% endblock %}
 {% block system_content %}
 {% set fields = draft if draft is not none else settings %}
 {% set authenticate = (draft.authentication != 'disabled') if draft is not none else (settings.uses_authentication if settings else true) %}

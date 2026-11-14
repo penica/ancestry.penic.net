@@ -19,7 +19,9 @@ import signal
 import sqlite3
 import subprocess
 import sys
+from collections import Counter
 from contextlib import contextmanager
+from hashlib import sha256
 from pathlib import Path
 from secrets import compare_digest, token_urlsafe
 from threading import Lock
@@ -28,6 +30,8 @@ from urllib.parse import urlencode
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi import Path as PathParam
 from fastapi.responses import (
     FileResponse,
@@ -40,6 +44,7 @@ from fastapi.responses import (
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pydantic import BaseModel, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -125,6 +130,17 @@ if TYPE_CHECKING:
     from starlette.middleware.base import RequestResponseEndpoint
 
 HERE: Final = Path(__file__).resolve().parent
+ASSET_NAMES: Final = (
+    "family.css", "image-preview.css", "image-preview.js", "pedigree.css",
+    "pedigree.js", "pedigree-publish.js", "pedigree-share.js", "pedigree-tools.js",
+    "pedigree-worklist.js", "reader.css", "reader-accounts.css",
+    "reader-email-settings.js", "reader-passkeys.js", "reader-profile.css",
+)
+ASSET_URLS: Final = {
+    name: f"/static/{sha256((HERE / name).read_bytes()).hexdigest()[:16]}/{name}"
+    for name in ASSET_NAMES
+}
+ASSET_FILES: Final = {url: HERE / name for name, url in ASSET_URLS.items()}
 PAGE_SIZE: Final = 20
 PEDIGREE_GENERATIONS: Final = 11
 PUBLISH_SCRIPT: Final = HERE / "deploy" / "publish-tree.py"
@@ -158,6 +174,14 @@ def selected_tree(
 
 
 SelectedTree = Annotated[Tree, Depends(selected_tree)]
+
+
+def family_tree(tree: SelectedTree) -> Tree:
+    require_family_tree(tree)
+    return tree
+
+
+FamilyTree = Annotated[Tree, Depends(family_tree)]
 
 
 class TreeChoice(Record):
@@ -328,10 +352,16 @@ class PublicationFence:
             await self.app(scope, receive, send)
             return
         pending = self.incoming / ".publication-pending.json"
-        unavailable = JSONResponse(
-            {"detail": "A tree publication is being completed. Try again shortly."},
-            status_code=503,
-            headers={"Cache-Control": "no-store"},
+        message = "A tree publication is being completed. Try again shortly."
+        headers = {"Cache-Control": "no-store", "Retry-After": "5"}
+        unavailable = (
+            JSONResponse({"detail": message}, status_code=503, headers=headers)
+            if scope["path"].startswith("/api/")
+            else HTMLResponse(
+                f"<!doctype html><html lang='en'><title>Tree unavailable</title><h1>Tree unavailable</h1><p>{message}</p></html>",
+                status_code=503,
+                headers=headers,
+            )
         )
         if pending.exists():
             await unavailable(scope, receive, send)
@@ -354,6 +384,7 @@ class PublicationFence:
 
 
 templates = Environment(loader=FileSystemLoader(HERE), autoescape=select_autoescape())
+templates.globals["asset"] = ASSET_URLS.__getitem__
 reader_access = ReaderAccess.from_environment()
 if reader_access.accounts is not None and (
     default_database := os.environ.get("ROOTSMAGIC_DB")
@@ -368,10 +399,36 @@ comment_store = Comments(tree_state)
 follow_up_store = FollowUps(tree_state)
 chart_links = ChartLinks(tree_state)
 saved_charts = SavedCharts(tree_state)
+heavy_reads: Counter[int] = Counter()
+heavy_reads_lock = Lock()
 app.include_router(account_router(reader_access, templates))
 if reader_access.accounts is not None:
     app.include_router(integration_router(reader_access))
 app.include_router(follow_up_router(reader_access, follow_up_store, templates))
+
+
+@contextmanager
+def heavy_read_slot(request: Request, *, required: bool = True) -> Iterator[None]:
+    session = current_session(request)
+    if not required or session is None:
+        yield
+        return
+    owner = session.account.id
+    with heavy_reads_lock:
+        if heavy_reads[owner] >= 2:
+            raise HTTPException(
+                status_code=429,
+                detail="Two large tree requests are already running. Try again shortly.",
+                headers={"Retry-After": "2"},
+            )
+        heavy_reads[owner] += 1
+    try:
+        yield
+    finally:
+        with heavy_reads_lock:
+            heavy_reads[owner] -= 1
+            if not heavy_reads[owner]:
+                del heavy_reads[owner]
 
 
 @app.middleware("http")
@@ -379,10 +436,20 @@ async def local_headers(
     request: Request, call_next: RequestResponseEndpoint
 ) -> Response:
     """Keep responses private and prevent embedding or loading third-party assets."""
-    response = await reader_access.guard(request)
-    if response is None:
-        response = await call_next(request)
-    response.headers["Cache-Control"] = "no-store"
+    path = request.url.path
+    asset = ASSET_FILES.get(path) if request.method in {"GET", "HEAD"} else None
+    if asset is not None and (
+        reader_access.accounts is not None or reader_access.local_browser(request)
+    ):
+        response = FileResponse(
+            asset, media_type="text/css" if asset.suffix == ".css" else "text/javascript"
+        )
+        response.headers["Cache-Control"] = "private, max-age=31536000, immutable"
+    else:
+        response = await reader_access.guard(request)
+        if response is None:
+            response = await call_next(request)
+        response.headers["Cache-Control"] = "no-store"
     policy = (
         "default-src 'none'; style-src 'self'; form-action 'self'; "
         "frame-ancestors 'none'; base-uri 'none'"
@@ -408,6 +475,7 @@ async def local_headers(
         policy += "; img-src 'self'"
     response.headers["Content-Security-Policy"] = policy
     response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
     response.headers["Referrer-Policy"] = "no-referrer"
     return response
 
@@ -448,8 +516,8 @@ async def settings_unavailable(request: Request, error: SettingsError) -> Respon
     return PlainTextResponse(str(error), status_code=503)
 
 
-@app.exception_handler(HTTPException)
-async def rejected_request(request: Request, error: HTTPException) -> Response:
+@app.exception_handler(StarletteHTTPException)
+async def rejected_request(request: Request, error: StarletteHTTPException) -> Response:
     """Keep a usable tree chooser when an old browser link is unavailable."""
     if request.url.path.startswith("/api/"):
         return JSONResponse(
@@ -470,6 +538,23 @@ async def rejected_request(request: Request, error: HTTPException) -> Response:
         status_code=error.status_code,
         headers=error.headers,
     )
+
+
+@app.exception_handler(RequestValidationError)
+async def invalid_request(request: Request, error: RequestValidationError) -> Response:
+    if request.url.path.startswith("/api/"):
+        return await request_validation_exception_handler(request, error)
+    return await rejected_request(
+        request,
+        HTTPException(
+            status_code=422, detail="Check the address or form values and try again."
+        ),
+    )
+
+
+@app.get("/robots.txt", include_in_schema=False)
+def robots() -> PlainTextResponse:
+    return PlainTextResponse("User-agent: *\nDisallow: /\n")
 
 
 @app.get("/api/v1/trees", tags=["Trees"])
@@ -521,6 +606,7 @@ def api_pedigree_person_count(tree: SelectedTree) -> int:
 
 @app.get("/api/v1/pedigree/{person_id}", tags=["Pedigree"])
 def api_pedigree(
+    request: Request,
     person_id: RecordID,
     tree: SelectedTree,
     generations: Generations = PEDIGREE_GENERATIONS,
@@ -528,9 +614,10 @@ def api_pedigree(
 ) -> Pedigree:
     """Get ancestry and optionally multiple generations of descendants."""
     try:
-        chart = pedigree(
-            tree.database, PersonID(person_id), generations, descendant_depth
-        )
+        with heavy_read_slot(request, required=generations > 5 or descendant_depth > 2):
+            chart = pedigree(
+                tree.database, PersonID(person_id), generations, descendant_depth
+            )
     except DescendantLimitError as error:
         raise HTTPException(
             status_code=422,
@@ -579,15 +666,15 @@ def render_pedigree(
 
 @app.post("/api/v1/pedigree/share", tags=["Pedigree"], status_code=201)
 async def api_share_chart(request: Request, tree: SelectedTree) -> ChartLinkURL:
-    mutation_actor(request)
-    body = await read_json(request, 512 * 1024)
+    actor = mutation_actor(request)
+    body = await read_json(request, 64 * 1024)
     try:
         draft = ChartLinkDraft.model_validate_json(body, strict=True)
     except ValidationError as error:
         raise HTTPException(
             status_code=422, detail="This chart view could not be shared."
         ) from error
-    return await run_in_threadpool(chart_links.create, tree, draft)
+    return await run_in_threadpool(chart_links.create, tree, draft, actor.id)
 
 
 @app.get("/pedigree/share/{token}", include_in_schema=False)
@@ -622,7 +709,7 @@ def shared_chart(
 @app.post("/api/v1/pedigree/saved-charts", include_in_schema=False, status_code=201)
 async def save_chart(request: Request, tree: SelectedTree) -> ChartLinkURL:
     actor = mutation_actor(request)
-    body = await read_json(request, 512 * 1024)
+    body = await read_json(request, 64 * 1024)
     try:
         draft = SavedChartDraft.model_validate_json(body, strict=True)
     except ValidationError as error:
@@ -757,12 +844,11 @@ def api_pedigree_details(person_id: RecordID, tree: SelectedTree) -> Profile:
 def api_comments(
     request: Request,
     person_id: RecordID,
-    tree: SelectedTree,
+    tree: FamilyTree,
     limit: Limit = 50,
     before: BeforeComment = None,
 ) -> CommentPage:
     """List comments on a person in the selected tree."""
-    require_family_tree(tree)
     cursor = CommentID(before) if before is not None else None
     return comment_store.page(
         tree, reader_actor(request), PersonID(person_id), limit, cursor
@@ -771,10 +857,9 @@ def api_comments(
 
 @app.post("/api/v1/pedigree/{person_id}/comments", tags=["Pedigree"], status_code=201)
 async def api_add_comment(
-    request: Request, person_id: RecordID, tree: SelectedTree
+    request: Request, person_id: RecordID, tree: FamilyTree
 ) -> Comment:
     """Append a plain-text comment as the current reader."""
-    require_family_tree(tree)
     author = mutation_actor(request)
     draft = await read_comment(request)
     return await run_in_threadpool(
@@ -784,10 +869,9 @@ async def api_add_comment(
 
 @app.patch("/api/v1/pedigree/{person_id}/comments/{comment_id}", tags=["Pedigree"])
 async def api_edit_comment(
-    request: Request, person_id: RecordID, comment_id: RecordID, tree: SelectedTree
+    request: Request, person_id: RecordID, comment_id: RecordID, tree: FamilyTree
 ) -> Comment:
     """Edit a comment as its original author."""
-    require_family_tree(tree)
     actor = mutation_actor(request)
     draft = await read_comment(request)
     return await run_in_threadpool(
@@ -806,10 +890,9 @@ async def api_edit_comment(
     status_code=204,
 )
 def api_remove_comment(
-    request: Request, person_id: RecordID, comment_id: RecordID, tree: SelectedTree
+    request: Request, person_id: RecordID, comment_id: RecordID, tree: FamilyTree
 ) -> Response:
     """Remove a comment as a reader administrator."""
-    require_family_tree(tree)
     comment_store.remove(
         tree, PersonID(person_id), CommentID(comment_id), mutation_actor(request)
     )
@@ -818,10 +901,9 @@ def api_remove_comment(
 
 @app.get("/pedigree/comments", include_in_schema=False)
 def recent_comments(
-    request: Request, tree: SelectedTree, before: BeforeComment = None
+    request: Request, tree: FamilyTree, before: BeforeComment = None
 ) -> HTMLResponse:
     """Show the latest comments for the current tree."""
-    require_family_tree(tree)
     cursor = CommentID(before) if before is not None else None
     page = comment_store.page(tree, reader_actor(request), None, 30, cursor)
     people = person_names(
@@ -840,11 +922,13 @@ def recent_comments(
 
 @app.get("/api/v1/pedigree/{person_id}/relationship", tags=["Pedigree"])
 def api_relationship(
+    request: Request,
     person_id: RecordID,
     from_id: Annotated[int, Query(ge=1, le=2**63 - 1)],
     tree: SelectedTree,
 ) -> RelationshipPaths:
-    result = relationship_paths(tree.database, PersonID(from_id), PersonID(person_id))
+    with heavy_read_slot(request):
+        result = relationship_paths(tree.database, PersonID(from_id), PersonID(person_id))
     if result is None:
         raise HTTPException(status_code=404, detail="Person not found")
     return result
@@ -852,9 +936,8 @@ def api_relationship(
 
 @app.post("/api/v1/pedigree/research-gaps", tags=["Pedigree"])
 def api_research_gaps(
-    request: Request, query: GapRequest, tree: SelectedTree
+    request: Request, query: GapRequest, tree: FamilyTree
 ) -> ResearchGaps:
-    require_family_tree(tree)
     person_ids = tuple(map(PersonID, query.person_ids))
     result = research_gaps(tree.database, person_ids)
     if not query.include_follow_ups:
@@ -864,8 +947,7 @@ def api_research_gaps(
 
 
 @app.post("/api/v1/pedigree/follow-ups", tags=["Pedigree"], status_code=201)
-async def api_save_follow_up(request: Request, tree: SelectedTree) -> FollowUp:
-    require_family_tree(tree)
+async def api_save_follow_up(request: Request, tree: FamilyTree) -> FollowUp:
     actor = mutation_actor(request)
     body = await read_json(request, 512)
     try:
@@ -878,8 +960,7 @@ async def api_save_follow_up(request: Request, tree: SelectedTree) -> FollowUp:
 
 
 @app.get("/api/v1/pedigree/{person_id}/evidence", tags=["Pedigree"])
-def api_evidence(person_id: RecordID, tree: SelectedTree) -> PersonEvidence:
-    require_family_tree(tree)
+def api_evidence(person_id: RecordID, tree: FamilyTree) -> PersonEvidence:
     result = person_evidence(tree.path, PersonID(person_id))
     if result is None:
         raise HTTPException(status_code=404, detail="Person not found")
@@ -887,8 +968,7 @@ def api_evidence(person_id: RecordID, tree: SelectedTree) -> PersonEvidence:
 
 
 @app.get("/api/v1/pedigree/media/{media_id}", tags=["Pedigree"])
-def api_media(media_id: RecordID, tree: SelectedTree) -> FileResponse:
-    require_family_tree(tree)
+def api_media(media_id: RecordID, tree: FamilyTree) -> FileResponse:
     file = media_file(tree.path, media_id)
     if file is None:
         raise HTTPException(status_code=404, detail="Linked media is unavailable")
@@ -990,57 +1070,6 @@ def pedigree_record_page(
     )
 
 
-@app.get("/pedigree.css", include_in_schema=False)
-def pedigree_styles() -> FileResponse:
-    """Serve the chart's stylesheet."""
-    return FileResponse(HERE / "pedigree.css", media_type="text/css")
-
-
-@app.get("/image-preview.css", include_in_schema=False)
-def image_preview_styles() -> FileResponse:
-    """Serve the shared image preview stylesheet."""
-    return FileResponse(HERE / "image-preview.css", media_type="text/css")
-
-
-@app.get("/family.css", include_in_schema=False)
-def family_styles() -> FileResponse:
-    """Serve the shared family-section stylesheet."""
-    return FileResponse(HERE / "family.css", media_type="text/css")
-
-
-@app.get("/image-preview.js", include_in_schema=False)
-def image_preview_script() -> FileResponse:
-    """Serve the shared image preview interactions."""
-    return FileResponse(HERE / "image-preview.js", media_type="text/javascript")
-
-
-@app.get("/pedigree.js", include_in_schema=False)
-def pedigree_script() -> FileResponse:
-    """Serve the chart's browser interactions."""
-    return FileResponse(HERE / "pedigree.js", media_type="text/javascript")
-
-
-@app.get("/pedigree-tools.js", include_in_schema=False)
-def pedigree_tools_script() -> FileResponse:
-    return FileResponse(HERE / "pedigree-tools.js", media_type="text/javascript")
-
-
-@app.get("/pedigree-worklist.js", include_in_schema=False)
-def pedigree_worklist_script() -> FileResponse:
-    """Serve the research worklist interactions."""
-    return FileResponse(HERE / "pedigree-worklist.js", media_type="text/javascript")
-
-
-@app.get("/pedigree-share.js", include_in_schema=False)
-def pedigree_share_script() -> FileResponse:
-    return FileResponse(HERE / "pedigree-share.js", media_type="text/javascript")
-
-
-@app.get("/pedigree-publish.js", include_in_schema=False)
-def pedigree_publish_script() -> FileResponse:
-    return FileResponse(HERE / "pedigree-publish.js", media_type="text/javascript")
-
-
 @app.get("/", include_in_schema=False)
 def landing_page(request: Request) -> RedirectResponse:
     """Open the chart, with a redirect for old directory search bookmarks."""
@@ -1116,12 +1145,6 @@ def person_page(
             local_system=reader_access.local_browser(request),
         )
     )
-
-
-@app.get("/reader.css", include_in_schema=False)
-def styles() -> FileResponse:
-    """Serve the local stylesheet."""
-    return FileResponse(HERE / "reader.css", media_type="text/css")
 
 
 if __name__ == "__main__":

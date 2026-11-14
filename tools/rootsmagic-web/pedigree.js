@@ -144,6 +144,21 @@ function historyView() {
   return location.pathname === SHARED_PATH ? JSON.parse(document.body.dataset.sharedView) : null;
 }
 
+const signInViewKey = "rootsmagic-reader:sign-in-chart";
+let returningToSignIn = false;
+
+function restoreSignInView() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(signInViewKey));
+    sessionStorage.removeItem(signInViewKey);
+    if (saved?.url === location.pathname + location.search && saved.tree === TREE) {
+      history.replaceState({ ...saved.state, restoredAfterSignIn: true }, "", location.href);
+    }
+  } catch {
+    // Browsers can disable session storage. The current URL still opens the person.
+  }
+}
+
 function updatePreviousLink() {
   const id = previousPerson();
   for (const link of [previousLink, detailsPrevious]) {
@@ -234,8 +249,9 @@ function cardDetailAction(person, key, action, label) {
   return button;
 }
 
-function stageNode(stage, person, role, branch, generation, key) {
+function stageNode(stage, person, role, branch, generation, key, child = null) {
   const card = personCard(person, role);
+  if (child) card.prepend(element("span", "visually-hidden", `Generation ${generation}, parent of ${child.name}. `));
   card.dataset.generation = String(generation);
   const actions = element("div", "card-actions");
   actions.append(cardDetailAction(person, key, "details", "Details"));
@@ -405,7 +421,7 @@ function rootGraph(stage, data) {
         const branch = graph === root
           ? index * 2
           : depth === 1 && graph.branch !== null ? graph.branch + index : graph.branch;
-        const node = stageNode(stage, parent.person, "", branch, depth + 2, parent.key);
+        const node = stageNode(stage, parent.person, "", branch, depth + 2, parent.key, record.person);
         next.push({ graph: node, record: parent });
         return node;
       });
@@ -1136,6 +1152,22 @@ class PedigreeRequestError extends Error {
 
 async function requestJSON(url, request) {
   const response = await fetch(treeURL(url), request);
+  if (response.status === 401 && document.body.dataset.hosted === "true") {
+    if (!returningToSignIn) {
+      returningToSignIn = true;
+      saveChartView();
+      const next = location.pathname + location.search;
+      try {
+        sessionStorage.setItem(signInViewKey, JSON.stringify({
+          url: next, tree: TREE, state: history.state,
+        }));
+      } catch {
+        // The return URL still carries the tree and starting person.
+      }
+      location.replace(`/login?next=${encodeURIComponent(next)}`);
+    }
+    throw new PedigreeRequestError("Sign in to continue.", 401);
+  }
   if (!response.ok) {
     const result = await response.json().catch(() => null);
     const message = typeof result?.detail === "string" ? result.detail : "The RootsMagic reader could not load this request.";
@@ -1853,6 +1885,13 @@ document.addEventListener("click", (event) => {
     closeDetails();
     saveChartView();
     if (link === previousLink || link === detailsPrevious) {
+      if (history.state?.restoredAfterSignIn) {
+        const id = previousPerson();
+        if (id === null) return;
+        history.replaceState({}, "", personURL(id));
+        void loadTree(id, true);
+        return;
+      }
       history.back();
       return;
     }
@@ -1917,5 +1956,6 @@ descendantDepth.addEventListener("change", () => {
   void updateDescendantDepth();
   saveChartView();
 });
+restoreSignInView();
 void loadTree(currentPerson(), false, historyView());
 initialDepth.addEventListener("change", () => void loadTree(currentPerson()));

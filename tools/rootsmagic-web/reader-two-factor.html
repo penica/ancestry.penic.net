@@ -1,6 +1,6 @@
 {% extends "reader-account-shell.html" %}
 {% block title %}Two-step verification{% endblock %}
-{% block extra_styles %}<link rel="stylesheet" href="/reader-profile.css">{% endblock %}
+{% block extra_styles %}<link rel="stylesheet" href="{{ asset('reader-profile.css') }}">{% endblock %}
 
 {% macro current_password(id) -%}
 <div class="account-field">

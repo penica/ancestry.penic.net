@@ -1,16 +1,18 @@
 """Bounded recorded-family routes and research prompts for visible people."""
-# noqa: SIZE_OK — the two research responses share this small read-only adapter.
 
 from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+from functools import lru_cache
 from itertools import pairwise
+from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal
 
 from pydantic import Field
 
 from pedigree_store import CARD_PERSON, FACTS, PARENT_FAMILY, Fact, ParentFamily, facts
+from reader_external import ExternalTree
 from store import NAME, Person, PersonID, Record, connect, display_date
 
 if TYPE_CHECKING:
@@ -194,12 +196,44 @@ def _routes(
     )
 
 
+def graph_stamp(file: Path) -> tuple[tuple[int, int, int, int, int], ...]:
+    result = []
+    for path in (file, file.with_name(file.name + "-wal")):
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            if path == file:
+                raise
+            continue
+        result.append(
+            (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+        )
+    return tuple(result)
+
+
+@lru_cache(maxsize=8)
+def cached_graph(
+    path: DatabasePath, stamp: tuple[tuple[int, int, int, int, int], ...]
+) -> FamilyGraph:
+    with connect(path) as db:
+        return _graph(db)
+
+
+def family_graph(path: DatabasePath) -> FamilyGraph:
+    file = path.file if isinstance(path, ExternalTree) else path
+    stamp = graph_stamp(file)
+    graph = cached_graph(path, stamp)
+    if graph_stamp(file) != stamp:
+        with connect(path) as db:
+            return _graph(db)
+    return graph
+
+
 def relationship_paths(
     path: DatabasePath, from_id: PersonID, to_id: PersonID
 ) -> RelationshipPaths | None:
     """Find recorded ancestry routes first, otherwise shortest family routes."""
-    with connect(path) as db:
-        graph = _graph(db)
+    graph = family_graph(path)
     if from_id not in graph.people or to_id not in graph.people:
         return None
     strategy: Literal["ancestry", "shortest", "same", "none"] = "same"

@@ -2,6 +2,21 @@
 
 Check off a step when its behavior has been verified. **P1** covers the current changes and protections for the hosted reader. **P2** improves family research and publishing. **P3** applies when access expands outside the family.
 
+## Code audit
+
+- [x] Isolate password retry limits by visitor and restrict the accountless reader to loopback (SEC-01, SEC-02).
+- [x] Add per-account chart and comment quotas, and limit simultaneous large chart and relationship reads (SEC-03, SEC-04).
+- [x] Encrypt reader-state backups to a recovery key, copy them to the NAS, and rehearse an isolated restore (ARCH-01, SEC-06).
+- [x] Add account deletion with comment anonymisation and single-transaction cleanup (GDPR-01).
+- [x] Redirect expired chart sessions to sign-in and restore the current chart. Add confirmations for destructive actions, friendly failure pages, and author comment removal (UX-02 to UX-06).
+- [x] Cache versioned static assets, add crawler directives, and route access to raw evidence through a family-only dependency (PERF-01, SEO-01, ARCH-03).
+- [x] Cache the relationship graph and converted notes, and index saved charts by owner (PERF-03, PERF-08, PERF-11).
+- [x] Add synthetic tree tests for account access and the External Reader boundary, and run them before release (TEST-01 to TEST-03, initial coverage).
+- [ ] Expand regression coverage across remaining HTTP endpoints, passkeys, printing and browser journeys (TEST-01 to TEST-05).
+- [ ] Add a verified email and password reset flow, a safe administrator second-factor enrollment policy, and the remaining account and accessibility improvements.
+- [ ] Improve large chart queries and image previews, and separate database migrations and other structural refactors into their own releases.
+- [ ] Document retention, review Cloudflare and family sharing policies, and arrange a second backup destination outside the house.
+
 ## P1 · Current changes
 
 - [x] **Open Pedigree by default**

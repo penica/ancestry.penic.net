@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from pydantic import StringConstraints
 
 from reader_chart_links import ChartLinkDraft, ChartView, public_chart_view
-from reader_tree_state import initialize, initialized
+from reader_tree_state import initialize, initialized, require_active_reader
 from store import PersonID, Record, connect, person_identity
 
 if TYPE_CHECKING:
@@ -102,7 +102,21 @@ class SavedCharts:
         )
         with self.state.connect(write=True) as db:
             initialize(db)
+            require_active_reader(db, owner)
             db.execute(CREATE_SAVED)
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS saved_charts_owner ON saved_charts(owner, tree_slug)"
+            )
+            if (
+                db.execute(
+                    "SELECT count(*) FROM saved_charts WHERE owner = ?", (owner,)
+                ).fetchone()[0]
+                >= 200
+            ):
+                raise HTTPException(
+                    status_code=429,
+                    detail="You can save up to 200 charts. Delete a saved chart to make room.",
+                )
             row = db.execute(
                 """INSERT INTO saved_charts (owner, tree_slug, person_id, identity, name, view)
                    VALUES (?, ?, ?, ?, ?, ?) RETURNING *""",

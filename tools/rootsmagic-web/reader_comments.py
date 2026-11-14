@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from secrets import token_urlsafe
 from typing import TYPE_CHECKING, Annotated, Final, NewType
 
@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from pydantic import ConfigDict, StringConstraints, ValidationError
 
 from reader_access import current_session, verify_csrf
-from reader_tree_state import TreeState, initialize, initialized
+from reader_tree_state import TreeState, initialize, initialized, require_active_reader
 from store import PersonID, Record, connect
 
 if TYPE_CHECKING:
@@ -91,7 +91,10 @@ def prepare_comments(db: sqlite3.Connection) -> None:
 def comment_record(row: sqlite3.Row, actor: ReaderActor) -> Comment:
     return Comment.model_validate(
         dict(row)
-        | {"can_edit": actor.owns_comment(row), "can_remove": actor.administrator}
+        | {
+            "can_edit": actor.owns_comment(row),
+            "can_remove": actor.administrator or actor.owns_comment(row),
+        }
     )
 
 
@@ -140,9 +143,25 @@ class Comments:
     ) -> Comment:
         """Append a comment and initialize a new store in the same transaction."""
         require_person(tree, person_id)
-        created_at = datetime.now(UTC).isoformat(timespec="seconds")
+        now = datetime.now(UTC)
+        created_at = now.isoformat(timespec="seconds")
         with self.state.connect(write=True) as db:
             prepare_comments(db)
+            require_active_reader(db, author.id)
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS comments_author_date ON comments(author_id, created_at)"
+            )
+            cutoff = (now - timedelta(hours=1)).isoformat(timespec="seconds")
+            if (
+                db.execute(
+                    "SELECT count(*) FROM comments WHERE author_id = ? AND created_at > ?",
+                    (author.id, cutoff),
+                ).fetchone()[0]
+                >= 20
+            ):
+                raise HTTPException(
+                    status_code=429, detail="You can post up to 20 comments per hour."
+                )
             row = db.execute(
                 """INSERT INTO comments (tree_slug, person_id, author, body, created_at, author_id)
                    VALUES (?, ?, ?, ?, ?, ?) RETURNING *""",
@@ -160,6 +179,7 @@ class Comments:
     ) -> Comment:
         """Update a comment owned by the signed-in author."""
         with self.state.connect(write=True) as db:
+            require_active_reader(db, actor.id)
             row = editable_comment(db, tree, person, comment)
             if not actor.owns_comment(row):
                 raise HTTPException(
@@ -175,14 +195,17 @@ class Comments:
         self, tree: Tree, person: PersonID, comment: CommentID, actor: ReaderActor
     ) -> None:
         """Remove comment text while reserving the ID for existing links and cursors."""
-        if not actor.administrator:
-            raise HTTPException(
-                status_code=403, detail="Administrator access is required."
-            )
         with self.state.connect(write=True) as db:
-            editable_comment(db, tree, person, comment)
+            require_active_reader(db, actor.id)
+            row = editable_comment(db, tree, person, comment)
+            if not (actor.administrator or actor.owns_comment(row)):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only the author or an administrator can remove this comment.",
+                )
             db.execute(
-                "UPDATE comments SET body = '', removed = 1 WHERE id = ?", (comment,)
+                "UPDATE comments SET body = '', author = 'Removed', removed = 1 WHERE id = ?",
+                (comment,),
             )
 
 

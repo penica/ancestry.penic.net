@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import (
-    FileResponse,
     HTMLResponse,
     JSONResponse,
     RedirectResponse,
@@ -131,12 +129,6 @@ def passkey_router(access: ReaderAccess, templates: Environment) -> APIRouter:
                 notice="Passkey settings saved." if updated else "",
             ),
             status_code=400 if error else 200,
-        )
-
-    @router.get("/reader-passkeys.js")
-    def script() -> FileResponse:
-        return FileResponse(
-            Path(__file__).with_name("reader-passkeys.js"), media_type="text/javascript"
         )
 
     @router.get("/account/passkeys")

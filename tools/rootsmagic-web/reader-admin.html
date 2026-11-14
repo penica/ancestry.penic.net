@@ -108,18 +108,32 @@
               </form>
               {% endif %}
               <div class="account-actions">
+                {% if account.administrator %}<details><summary>Revoke administrator</summary>{% endif %}
                 <form action="/admin/account/{{ account.id }}/access" method="post">
                   {{ csrf() }}
                   <input type="hidden" name="tree_slug" value="">
                   <input type="hidden" name="role" value="{{ 'remove-administrator' if account.administrator else 'administrator' }}">
-                  <button class="account-secondary" type="submit">{{ 'Revoke administrator' if account.administrator else 'Grant administrator' }}</button>
+                  <button class="account-secondary" type="submit">{{ 'Confirm revocation' if account.administrator else 'Grant administrator' }}</button>
                 </form>
+                {% if account.administrator %}</details>{% endif %}
+                {% if not account.disabled %}<details><summary>Disable account</summary>{% endif %}
                 <form action="/admin/account/{{ account.id }}/status" method="post">
                   {{ csrf() }}
                   <input type="hidden" name="active" value="{{ 'true' if account.disabled else 'false' }}">
-                  <button class="account-secondary" type="submit">{{ 'Enable account' if account.disabled else 'Disable account' }}</button>
+                  <button class="account-secondary" type="submit">{{ 'Enable account' if account.disabled else 'Confirm disabling' }}</button>
                 </form>
+                {% if not account.disabled %}</details>{% endif %}
               </div>
+              {% if account.id != current_user.id %}
+              <details class="account-delete">
+                <summary>Delete account</summary>
+                <p>This permanently removes the account and its private reader activity. Published comments will appear under Former member.</p>
+                <form action="/admin/account/{{ account.id }}/delete" method="post">
+                  {{ csrf() }}
+                  <button class="account-secondary" type="submit" name="confirmation" value="delete">Permanently delete {{ account.username }}</button>
+                </form>
+              </details>
+              {% endif %}
             </div>
           </details>
         </li>
@@ -140,10 +154,13 @@
             <p class="muted">{{ invite.role.label }} · {{ tree_name(invite.tree_slug) if invite.tree_slug else 'All trees' }}</p>
             {% if invite.expires_display %}<p class="muted">Expires {{ invite.expires_display }}</p>{% endif %}
           </div>
-          <form action="/admin/invite/{{ invite.id }}/revoke" method="post">
-            {{ csrf() }}
-            <button class="account-secondary" type="submit" aria-label="Revoke invitation for {{ invite.username }}">Revoke</button>
-          </form>
+          <details>
+            <summary>Revoke invitation</summary>
+            <form action="/admin/invite/{{ invite.id }}/revoke" method="post">
+              {{ csrf() }}
+              <button class="account-secondary" type="submit">Confirm revocation for {{ invite.username }}</button>
+            </form>
+          </details>
         </li>
         {% endfor %}
       </ul>

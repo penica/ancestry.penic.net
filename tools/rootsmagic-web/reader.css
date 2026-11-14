@@ -28,6 +28,8 @@ a { color: var(--accent); text-underline-offset: .2em; }
 .reading { max-inline-size: 46rem; padding-block: var(--s8) var(--s12); overflow-wrap: anywhere; }
 h1, h2 { font-family: var(--display-font); font-weight: normal; line-height: 1.15; }
 h1 { font-size: var(--display); margin: var(--s2) 0 var(--s6); }
+.skip-link { position: fixed; inset: var(--s2) auto auto var(--s2); z-index: 12; padding: var(--s2); background: var(--surface); }
+.skip-link:not(:focus) { clip-path: inset(50%); }
 h2 { font-size: var(--section); margin: 0 0 var(--s3); }
 h3, p { margin: 0; }
 .label { font-size: var(--small); color: var(--muted); }

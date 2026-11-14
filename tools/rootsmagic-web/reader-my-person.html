@@ -1,6 +1,6 @@
 {% extends "reader-account-shell.html" %}
 {% block title %}My person{% endblock %}
-{% block extra_styles %}<link rel="stylesheet" href="/reader-profile.css">{% endblock %}
+{% block extra_styles %}<link rel="stylesheet" href="{{ asset('reader-profile.css') }}">{% endblock %}
 {% block page_size %}profile-reading reading{% endblock %}
 
 {% block content %}

@@ -7,18 +7,19 @@
   <meta name="description" content="Explore the ancestry of a person in your local RootsMagic tree.">
   {% if comments_token %}<meta name="reader-comments-token" content="{{ comments_token }}">{% endif %}
   <title>Family pedigree · RootsMagic Reader</title>
-  <link rel="stylesheet" href="/pedigree.css">
-  <link rel="stylesheet" href="/family.css">
-  <link rel="stylesheet" href="/image-preview.css">
-  <link rel="stylesheet" href="/reader-accounts.css">
-  <script defer src="/image-preview.js"></script>
-  <script defer src="/pedigree-tools.js"></script>
-  <script defer src="/pedigree-worklist.js"></script>
-  <script defer src="/pedigree.js"></script>
-  {% if comments_token %}<script defer src="/pedigree-share.js"></script>{% endif %}
-  {% if publish_token %}<script defer src="/pedigree-publish.js"></script>{% endif %}
+  <link rel="stylesheet" href="{{ asset('pedigree.css') }}">
+  <link rel="stylesheet" href="{{ asset('family.css') }}">
+  <link rel="stylesheet" href="{{ asset('image-preview.css') }}">
+  <link rel="stylesheet" href="{{ asset('reader-accounts.css') }}">
+  <script defer src="{{ asset('image-preview.js') }}"></script>
+  <script defer src="{{ asset('pedigree-tools.js') }}"></script>
+  <script defer src="{{ asset('pedigree-worklist.js') }}"></script>
+  <script defer src="{{ asset('pedigree.js') }}"></script>
+  {% if comments_token %}<script defer src="{{ asset('pedigree-share.js') }}"></script>{% endif %}
+  {% if publish_token %}<script defer src="{{ asset('pedigree-publish.js') }}"></script>{% endif %}
 </head>
-<body data-tree="{{ tree.slug }}" data-starting-person="{{ starting_person }}"{% if tree.external %} data-external-reader="true"{% endif %}{% if shared_view %} data-shared-person="{{ shared_person }}" data-shared-view="{{ shared_view }}"{% endif %}>
+<body data-tree="{{ tree.slug }}" data-starting-person="{{ starting_person }}"{% if reader_session %} data-hosted="true"{% endif %}{% if tree.external %} data-external-reader="true"{% endif %}{% if shared_view %} data-shared-person="{{ shared_person }}" data-shared-view="{{ shared_view }}"{% endif %}>
+  <a class="skip-link" href="#pedigree-viewport">Skip to chart</a>
   {% with pedigree_header=true %}{% include "reader-masthead.html" %}{% endwith %}
   <main class="shell">
     <div class="page-header">
@@ -59,7 +60,7 @@
           <p id="pedigree-summary"></p>
           <p id="pedigree-children" hidden></p>
         </div>
-        <div class="chart-navigation" aria-label="Chart navigation">
+        <div class="chart-navigation" role="group" aria-label="Chart navigation">
           <button class="reset" id="pedigree-center" type="button" aria-label="Center on starting person" disabled>Center<span class="center-description">&nbsp;on starting person</span></button>
           <span id="pedigree-children-status" class="hint" role="status" hidden></span>
           <div class="chart-view-controls" role="group" aria-label="Chart view">
@@ -226,7 +227,7 @@
         <h2 id="worklist-title">Research worklist</h2>
         <form method="dialog"><button class="reset" type="submit" autofocus>Close</button></form>
       </div>
-      <div class="chart-navigation" aria-label="Research worklist filters">
+      <div class="chart-navigation" role="group" aria-label="Research worklist filters">
         <label for="worklist-category">Missing information
           <select id="worklist-category">
             <option value="all">All gaps</option>
@@ -285,7 +286,7 @@
       <form method="dialog"><button class="reset" type="submit" autofocus>Close</button></form>
     </div>
     <p>{{ tree.name }}</p>
-    <div class="chart-navigation" aria-label="Publication options">
+    <div class="chart-navigation" role="group" aria-label="Publication options">
       <button class="reset" id="publish-update-preview" type="button">Preview update</button>
       <button class="reset" id="publish-rollback-preview" type="button">Preview restore</button>
     </div>
