@@ -18,8 +18,10 @@ Check off a step when its behavior has been verified. **P1** covers the current 
 - [x] Verify contact emails and provide single-use password recovery over protected SMTP. Require verified administrator sessions while allowing new administrators to enroll (UX-01, GDPR-07, SEC-05).
 - [ ] Enable email recovery in production after the mail relay offers TLS or a local relay is configured. The existing invitation mail settings still apply.
 - [ ] Finish the remaining account and accessibility improvements.
-- [ ] Batch large chart queries, and separate database migrations and other structural refactors into their own releases.
-- [ ] Document retention, review Cloudflare and family sharing policies, and arrange a second backup destination outside the house.
+- [x] Batch ancestry and vital-fact reads while preserving the configured chart depth and the External Reader projection (PERF-02).
+- [ ] Separate versioned database migrations and other structural refactors into their own releases.
+- [x] Document current retention for reader state, backups, and tree rollback history (GDPR-02).
+- [ ] Decide expiry for shared links and historical publications, review Cloudflare and family sharing policies, and arrange an off-site encrypted backup destination.
 
 ## P1 · Current changes
 

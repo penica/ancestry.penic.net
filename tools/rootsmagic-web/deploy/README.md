@@ -51,6 +51,17 @@ Install `age` on the VM. Set `ROOTSMAGIC_BACKUP_RECIPIENT`, `ROOTSMAGIC_ENCRYPTE
 
 Rehearse recovery in a private working directory using a trusted archive. Decrypt and extract with `age --decrypt -i "$recovery_key" "$archive" | tar -xf - -C "$restore_dir"`. Run SQLite `PRAGMA quick_check` on each database and verify sign-in in an isolated preview with the matching `mfa.key` and tree slugs. A restored account store can revive accounts, invitations, sessions, and API keys that existed when the snapshot was taken. Review these before putting a restore into service.
 
+### Data retention
+
+| Data | Current retention |
+| --- | --- |
+| Sessions, invitations, and email links | Access expires after 12 hours, 7 days, and 30 minutes respectively. Bootstrap invitations expire after 30 minutes. |
+| Reader-state snapshots | The newest 14 per destination by default. The administrator can set the limit to 3–60. A deleted account can still exist in snapshots taken before its deletion until rotation removes them. |
+| Shared chart links, saved charts and follow-ups | Kept until the applicable owner or administrator removes them. Older share links may have no associated owner. |
+| Published trees and media | Archived versions and their referenced media remain available for rollback. There is currently no automatic archive purge. |
+
+When reviewing publication history for deletion, include the database snapshots, publication manifests, and archived media together. Check references from live and retained versions before removing media. The NAS is outside the VM. A second encrypted backup destination outside the house is still outstanding.
+
 Keep one Uvicorn worker. The PDF and large-query limits are maintained in memory. Before switching `current` to a new release, run `bash deploy/check-release.sh "$PWD/.venv/bin/python"` from the candidate release. The suite uses temporary databases. Check the hosted sign-in page and a signed-out API request after restarting the service.
 
 Set `ROOTSMAGIC_SETTINGS_FILE` to an absolute private JSON file to override the saved settings location. Keep `ROOTSMAGIC_BACKUP_STATUS_FILE` consistent between the reader and the backup service. The default status directory is owned by root and readable by the reader group.

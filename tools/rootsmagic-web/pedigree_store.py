@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from collections import defaultdict
 from functools import cache, lru_cache
 from html.parser import HTMLParser
 from itertools import groupby
+from json import dumps
 from typing import TYPE_CHECKING, Final, Literal, NewType
 
 from pydantic import Field
 
-from death_age import read_age_at_death
+from death_age import VITAL_DATES, age_from_vital_dates, read_age_at_death
 from family_details import CHILD_FAMILIES, read_family_details
 from store import (
     NAME,
@@ -27,6 +29,7 @@ from store import (
 
 if TYPE_CHECKING:
     import sqlite3
+    from collections.abc import Iterable
     from reader_external import DatabasePath
 
 FamilyID = NewType("FamilyID", int)
@@ -40,7 +43,7 @@ CARD_PERSON: Final = f"""
     WHERE person.id = ?
 """  # noqa: S608
 PARENT_FAMILY: Final = """
-    SELECT f.FamilyID AS id, nullif(f.FatherID, 0) AS father,
+    SELECT p.PersonID AS person_id, f.FamilyID AS id, nullif(f.FatherID, 0) AS father,
            nullif(f.MotherID, 0) AS mother
     FROM PersonTable p
     JOIN FamilyTable f ON f.FamilyID = coalesce(
@@ -82,7 +85,7 @@ PARTNER_FAMILIES: Final = """
     WHERE id > 0 AND id <> :person_id ORDER BY id, family_id
 """
 FACTS: Final = """
-    SELECT e.EventType AS type, e.Date AS date, p.Name AS place,
+    SELECT e.OwnerID AS owner_id, e.EventType AS type, e.Date AS date, p.Name AS place,
            site.Name AS place_detail
     FROM EventTable e
     LEFT JOIN PlaceTable p ON p.PlaceID = e.PlaceID
@@ -92,6 +95,11 @@ FACTS: Final = """
     ORDER BY e.IsPrimary DESC, nullif(nullif(e.Date, '.'), '') IS NULL,
              e.PlaceID = 0 AND e.SiteID = 0, e.EventID
 """
+BATCH_IDS: Final = "IN (SELECT value FROM json_each(?))"
+CARD_PEOPLE: Final = CARD_PERSON.replace("person.id = ?", f"person.id {BATCH_IDS}")
+PARENT_FAMILIES: Final = PARENT_FAMILY.replace("p.PersonID = ?", f"p.PersonID {BATCH_IDS}")
+OWNER_FACTS: Final = FACTS.replace("e.OwnerID = ?", f"e.OwnerID {BATCH_IDS}")
+OWNER_DATES: Final = VITAL_DATES.replace("OwnerID = ?", f"OwnerID {BATCH_IDS}")
 
 
 class Fact(Record):
@@ -210,6 +218,10 @@ def facts(
     owner_id: PersonID | FamilyID,
 ) -> CardFacts:
     """Select the best displayable event of each supported type."""
+    return select_facts(db.execute(FACTS, (owner_type, owner_id)))
+
+
+def select_facts(rows: Iterable[sqlite3.Row]) -> CardFacts:
     labels = {
         1: "Born",
         2: "Died",
@@ -219,8 +231,10 @@ def facts(
         300: "Married",
     }
     result: dict[int, Fact] = {}
-    for row in db.execute(FACTS, (owner_type, owner_id)):
-        event = StoredFact.model_validate(dict(row))
+    for row in rows:
+        event = StoredFact.model_validate(
+            {key: row[key] for key in ("type", "date", "place", "place_detail")}
+        )
         if event.type in result:
             continue
         date = display_date(event.date)
@@ -369,23 +383,48 @@ def read_card(db: sqlite3.Connection, record_id: PersonID) -> PersonCard | None:
     row = db.execute(CARD_PERSON, (record_id,)).fetchone()
     if row is None:
         return None
+    return project_card(
+        row, facts(db, 0, record_id),
+        read_age_at_death(
+            db, record_id, birth_year=row["birth_year"], death_year=row["death_year"],
+            living=row["living"],
+        ),
+    )
+
+
+def project_card(row: sqlite3.Row, facts: CardFacts, age: str | None) -> PersonCard:
     person = Person.model_validate(dict(row))
-    events = facts(db, 0, record_id)
     return PersonCard(
         id=person.id,
         name=person.name if person.name.strip(" ?_") else "Name unknown",
         living=person.living,
         sex=row["sex"],
-        birth=events.birth,
-        death=None if person.living else events.death,
-        age_at_death=read_age_at_death(
-            db,
-            record_id,
-            birth_year=row["birth_year"],
-            death_year=row["death_year"],
-            living=person.living,
-        ),
+        birth=facts.birth,
+        death=None if person.living else facts.death,
+        age_at_death=age,
     )
+
+
+def read_cards(
+    db: sqlite3.Connection, ids: Iterable[PersonID]
+) -> dict[PersonID, PersonCard]:
+    """Read person cards and their events in batches through the authorized view."""
+    selected = dumps(tuple(ids))
+    events: dict[int, list[sqlite3.Row]] = defaultdict(list)
+    for row in db.execute(OWNER_FACTS, (0, selected)):
+        events[row["owner_id"]].append(row)
+    dates: dict[int, list[tuple[int, str | None, int | None]]] = defaultdict(list)
+    for row in db.execute(OWNER_DATES, (selected,)):
+        dates[row["OwnerID"]].append((row["EventType"], row["Date"], row["IsPrivate"]))
+    return {
+        PersonID(row["id"]): project_card(
+            row, select_facts(events[row["id"]]),
+            None if row["living"] else age_from_vital_dates(
+                dates[row["id"]], birth_year=row["birth_year"], death_year=row["death_year"]
+            ),
+        )
+        for row in db.execute(CARD_PEOPLE, (selected,))
+    }
 
 
 def read_parent_family(
@@ -412,18 +451,55 @@ def read_pedigree(
 ) -> Pedigree | None:
     """Project the chart inside the caller's current database snapshot."""
 
-    @cache
-    def card(record_id: PersonID) -> PersonCard | None:
-        return read_card(db, record_id)
+    cards: dict[PersonID, PersonCard | None] = {}
+    parent_families: dict[PersonID, ParentFamily | None] = {}
+    marriages: dict[FamilyID, Fact | None] = {}
+    root = read_card(db, person_id)
+    if root is None:
+        return None
+    cards[person_id] = root
 
-    @cache
+    def load_cards(ids: Iterable[PersonID]) -> None:
+        missing = set(ids).difference(cards)
+        if missing:
+            found = read_cards(db, missing)
+            cards.update((person, found.get(person)) for person in missing)
+
+    def card(record_id: PersonID) -> PersonCard | None:
+        load_cards((record_id,))
+        return cards.get(record_id)
+
     def parent_family(record_id: PersonID) -> ParentFamily | None:
-        return read_parent_family(db, record_id)
+        if record_id not in parent_families:
+            parent_families[record_id] = read_parent_family(db, record_id)
+        return parent_families[record_id]
+
+    def marriage_fact(family_id: FamilyID) -> Fact | None:
+        if family_id not in marriages:
+            marriages[family_id] = facts(db, 1, family_id).marriage
+        return marriages[family_id]
+
+    frontier = {person_id}
+    for _ in range(generations):
+        pending = frontier.difference(parent_families)
+        if not pending:
+            break
+        rows = db.execute(PARENT_FAMILIES, (dumps(tuple(pending)),))
+        found = {PersonID(row["person_id"]): ParentFamily.model_validate(dict(row)) for row in rows}
+        parent_families.update((person, found.get(person)) for person in pending)
+        frontier = {person for family in found.values() for person in family.parents}
+    load_cards((*parent_families, *frontier))
+    family_ids = {family.id for family in parent_families.values() if family is not None}
+    event_groups: dict[FamilyID, list[sqlite3.Row]] = defaultdict(list)
+    for row in db.execute(OWNER_FACTS, (1, dumps(tuple(family_ids)))):
+        event_groups[FamilyID(row["owner_id"])].append(row)
+    marriages.update((family_id, select_facts(event_groups[family_id]).marriage) for family_id in family_ids)
 
     @cache
     def child_families(record_id: PersonID) -> tuple[ChildFamily, ...]:
         families: list[ChildFamily] = []
-        rows = db.execute(CHILD_FAMILIES, {"person_id": record_id})
+        rows = tuple(db.execute(CHILD_FAMILIES, {"person_id": record_id}))
+        load_cards(PersonID(person) for row in rows for person in (row["child_id"], row["partner_id"]) if person)
         for family_id, linked_rows in groupby(rows, key=lambda row: row["family_id"]):
             links = tuple(linked_rows)
             children = tuple(
@@ -439,7 +515,7 @@ def read_pedigree(
                         id=FamilyID(family_id),
                         partner=partner,
                         children=children,
-                        marriage=facts(db, 1, FamilyID(family_id)).marriage
+                        marriage=marriage_fact(FamilyID(family_id))
                         if partner
                         else None,
                     )
@@ -506,13 +582,12 @@ def read_pedigree(
             for parent_id in family.parents
             if parent_id not in lineage and (parent := card(parent_id)) is not None
         )
-        marriage = facts(db, 1, family.id).marriage if len(parents) == 2 else None
+        marriage = marriage_fact(family.id) if len(parents) == 2 else None
         return PedigreeNode(person=person, parents=parents, marriage=marriage)
 
-    person = card(person_id)
-    if person is None:
-        return None
     family = parent_family(person_id)
+    sibling_links = sibling_relationships(db, person_id, family) if family else ()
+    load_cards(sibling_id for sibling_id, _ in sibling_links)
     siblings = (
         tuple(
             Sibling(
@@ -529,7 +604,7 @@ def read_pedigree(
                     )
                 ),
             )
-            for sibling_id, relationship in sibling_relationships(db, person_id, family)
+            for sibling_id, relationship in sibling_links
             if (sibling := card(sibling_id)) is not None
             for other_family in (parent_family(sibling_id),)
         )
@@ -542,17 +617,19 @@ def read_pedigree(
     }
     partners_by_id: dict[PersonID, PersonCard] = {}
     partner_marriages: dict[PersonID, tuple[Fact, ...]] = {}
-    for row in db.execute(PARTNER_FAMILIES, {"person_id": person_id}):
+    partner_rows = tuple(db.execute(PARTNER_FAMILIES, {"person_id": person_id}))
+    load_cards(PersonID(row["id"]) for row in partner_rows)
+    for row in partner_rows:
         partner = card(PersonID(row["id"]))
         if partner is None:
             continue
         partners_by_id[partner.id] = partner
-        marriage = facts(db, 1, FamilyID(row["family_id"])).marriage
-        marriages = partner_marriages.get(partner.id, ())
-        if marriage is not None and marriage not in marriages:
-            partner_marriages[partner.id] = (*marriages, marriage)
+        marriage = marriage_fact(FamilyID(row["family_id"]))
+        recorded_marriages = partner_marriages.get(partner.id, ())
+        if marriage is not None and marriage not in recorded_marriages:
+            partner_marriages[partner.id] = (*recorded_marriages, marriage)
     return Pedigree(
-        root=branch(person, generations, frozenset()),
+        root=branch(root, generations, frozenset()),
         siblings=siblings,
         children=tuple(children_by_id[key] for key in sorted(children_by_id)),
         partners=tuple(partners_by_id.values()),

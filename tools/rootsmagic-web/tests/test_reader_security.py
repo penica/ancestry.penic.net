@@ -222,6 +222,19 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
         with connect(external) as db, self.assertRaises(sqlite3.DatabaseError):
             db.execute("SELECT Note FROM main.PersonTable").fetchall()
 
+    def test_batched_pedigree_preserves_public_cards_and_parent_links(self) -> None:
+        from pedigree_store import read_card, read_parent_family
+
+        external = ExternalTree(self.tree.path)
+        chart = pedigree(external, PersonID(20), 11, 11)
+        self.assertIsNotNone(chart)
+        with connect(external) as db:
+            card = read_card(db, PersonID(20))
+            family = read_parent_family(db, PersonID(20))
+        self.assertEqual(chart.root.person, card)
+        self.assertEqual(tuple(node.person.id for node in chart.root.parents), family.parents)
+        self.assertEqual(tuple(node.id for node in chart.children), (24, 26))
+
     def test_hosted_media_fails_closed_without_map(self) -> None:
         from pedigree_evidence import StoredMedia, recorded_path
 

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
     import sqlite3
+    from collections.abc import Iterable
 
 DATE_CODE: Final = re.compile(r"D([.BAR-])\+(\d{8})\.([.A])\+(\d{8})\.\.")
 ISO_DATE: Final = re.compile(r"(\d{4})(?:-(\d{1,2})(?:-(\d{1,2}))?)?")
@@ -30,7 +31,7 @@ SLOVENIAN_MONTHS: Final = (
     ("december", "decembra"),
 )
 VITAL_DATES: Final = """
-    SELECT EventType, Date, IsPrivate FROM EventTable
+    SELECT EventType, Date, IsPrivate, OwnerID FROM EventTable
     WHERE OwnerType = 0 AND OwnerID = ? AND EventType IN (1, 2, 3, 4, 7)
     ORDER BY IsPrimary DESC, PlaceID = 0 AND SiteID = 0, EventID
 """
@@ -157,10 +158,20 @@ def read_age_at_death(
     """Read preferred vital dates from the caller's snapshot and format the age."""
     if living:
         return None
+    return age_from_vital_dates(
+        ((kind, raw, private) for kind, raw, private, _owner in db.execute(VITAL_DATES, (person_id,))),
+        birth_year=birth_year, death_year=death_year,
+    )
 
+
+def age_from_vital_dates(
+    rows: Iterable[tuple[int, str | None, int | None]], *,
+    birth_year: int | None, death_year: int | None,
+) -> str | None:
+    """Calculate an age from ordered vital events in the same snapshot."""
     dates: dict[int, AgeDate] = {}
     recorded: set[int] = set()
-    for kind, raw, private in db.execute(VITAL_DATES, (person_id,)):
+    for kind, raw, private in rows:
         if not raw or raw.strip() in {"", "."}:
             continue
         recorded.add(kind)
