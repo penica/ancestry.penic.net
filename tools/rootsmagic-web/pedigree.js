@@ -432,20 +432,57 @@ function verticalLine(paths, from, to, middle, branch, familyId) {
   return line;
 }
 
+function placeVerticalFamilies(root, partners, siblings, groups, slot) {
+  const families = new Map(partners.map((partner) => [partner.person.id, { partner, groups: [] }]));
+  const unpaired = [];
+  for (const group of groups) {
+    const id = group.partner?.id;
+    if (id === undefined) {
+      unpaired.push(group);
+    } else {
+      if (!families.has(id)) families.set(id, { partner: null, groups: [] });
+      families.get(id).groups.push(group);
+    }
+  }
+  const size = (items) => items.reduce((count, { nodes }) => count + nodes.length, 0);
+  const place = (items, start) => {
+    let x = start;
+    for (const { nodes } of items) {
+      for (const node of nodes) {
+        node.x = x;
+        x += slot;
+      }
+    }
+  };
+  const half = (Math.max(1, size(unpaired)) - 1) * slot / 2;
+  root.x = 0;
+  place(unpaired, -half);
+  let left = -half - slot;
+  let right = half + slot;
+  for (const [index, { partner, groups: children }] of [...families.values()].entries()) {
+    const span = (Math.max(1, size(children)) - 1) * slot;
+    const onLeft = index % 2 === 0;
+    const start = onLeft ? left - span : right;
+    place(children, start);
+    if (partner) partner.x = start + span / 2;
+    if (onLeft) left = start - slot;
+    else right = start + span + slot;
+  }
+  siblings.forEach((node, index) => { node.x = right + index * slot; });
+}
+
 function drawVerticalChart(stage, paths, graph, columns, childGroups, inset, cardWidth, rem, rowGap) {
   stage.classList.add("vertical-chart");
   const { root, partners, siblings, levels } = graph;
   const children = childGroups.flatMap(({ nodes }) => nodes);
   const rows = [...levels];
-  rows[0] = [...partners, root, ...siblings];
+  rows[0] = [...levels[0], ...siblings];
   const slot = cardWidth + rowGap * 2;
   const grouped = familyGroupsToggle.checked;
   for (const row of rows) {
     for (const node of row) node.height = node.card.offsetHeight + node.actions.offsetHeight;
   }
-  root.x = 0;
-  partners.forEach((node, index) => { node.x = (index - partners.length) * slot; });
-  siblings.forEach((node, index) => { node.x = (index + 1) * slot; });
+  placeVerticalFamilies(root, partners, siblings, childGroups, slot);
   for (let level = 0; level + 1 < levels.length; level++) {
     const next = levels[level + 1];
     const families = [...levels[level]].sort((a, b) => a.x - b.x);
@@ -460,14 +497,11 @@ function drawVerticalChart(stage, paths, graph, columns, childGroups, inset, car
     packColumn(ordered, rowGap * 2, (node) => node.heightOnRow);
     for (const node of next) node.x = node.y;
   }
-  let childLeft = root.x - (children.length - 1) * slot / 2;
   for (const group of childGroups) {
     group.label.style.width = `${Math.max(cardWidth, group.nodes.length * slot - rowGap * 2)}px`;
     group.labelHeight = group.label.offsetHeight;
     for (const node of group.nodes) {
       node.height = node.card.offsetHeight + node.actions.offsetHeight;
-      node.x = childLeft;
-      childLeft += slot;
     }
   }
   const all = [...rows.flat(), ...children];
@@ -510,23 +544,35 @@ function drawVerticalChart(stage, paths, graph, columns, childGroups, inset, car
       y = rowEnd[level] + height + rowGap * 3;
     }
   }
-  const peerTop = root.y;
   let height = rowEnd[0] + inset;
+  const partnershipJunctions = new Map();
   const partnerBand = Math.max(0, ...[...partnershipLabels.values()].map((label) => label.offsetHeight));
   if (partners.length) {
-    for (const [index, partner] of partners.entries()) {
-      const middle = rowEnd[0] + rowGap + index * rem * 0.375;
-      const connection = verticalLine(paths,
-        { x: center(root), y: root.y + root.height },
-        { x: center(partner), y: partner.y + partner.height }, middle, null);
-      connection.classList.add("partner-connector");
-      const label = partnershipLabels.get(partner);
-      if (!label) continue;
-      const adjacent = partners[index + 1] ?? root;
-      label.style.left = `${(center(partner) + center(adjacent)) / 2}px`;
-      label.style.top = `${middle + label.offsetHeight / 2 + rowGap / 4}px`;
+    let longestSide = 0;
+    const laneSpacing = rem * 0.375;
+    for (const side of [-1, 1]) {
+      const ordered = partners.filter((partner) => Math.sign(partner.x) === side)
+        .sort((a, b) => Math.abs(a.x) - Math.abs(b.x));
+      longestSide = Math.max(longestSide, ordered.length);
+      const portSpacing = Math.min(rowGap / 2, cardWidth / (2 * (ordered.length + 1)));
+      for (const [index, partner] of ordered.entries()) {
+        const middle = rowEnd[0] + rowGap + index * laneSpacing;
+        const rootPort = center(root) + side * (ordered.length - index) * portSpacing;
+        const connection = verticalLine(paths,
+          { x: rootPort, y: root.y + root.height },
+          { x: center(partner), y: partner.y + partner.height }, middle, null);
+        connection.classList.add("partner-connector");
+        partnershipJunctions.set(partner.person.id, { x: center(partner), y: middle, side });
+        const label = partnershipLabels.get(partner);
+        if (!label) continue;
+        const adjacent = ordered[index - 1] ?? root;
+        label.style.left = `${(center(partner) + center(adjacent)) / 2}px`;
+      }
     }
-    height += rowGap * 2 + partnerBand + partners.length * rem * 0.375;
+    for (const label of partnershipLabels.values()) {
+      label.style.top = `${rowEnd[0] + rowGap + longestSide * laneSpacing + label.offsetHeight / 2}px`;
+    }
+    height += rowGap * 2 + partnerBand + longestSide * laneSpacing;
   }
   for (const [level, nodes] of levels.entries()) {
     for (const node of nodes) {
@@ -551,34 +597,49 @@ function drawVerticalChart(stage, paths, graph, columns, childGroups, inset, car
       }
     }
   }
+  const childHeading = height;
   if (children.length) {
     const headerTop = height + rowGap * 2;
     const childTop = headerTop + Math.max(...childGroups.map((group) => group.labelHeight)) + rowGap;
-    for (const [index, group] of childGroups.entries()) {
-      const joint = group.nodes.reduce((sum, child) => sum + center(child), 0) / group.nodes.length;
-      const middle = height + rowGap * (1 + index / childGroups.length);
-      const branch = childGroups.length > 1 ? index % 4 : null;
-      group.label.style.left = `${center(group.nodes[0]) - cardWidth / 2}px`;
+    const ordered = [...childGroups].sort((a, b) => a.nodes[0].x - b.nodes[0].x);
+    const familyCounts = new Map();
+    for (const group of ordered) {
+      const id = group.partner?.id;
+      familyCounts.set(id, (familyCounts.get(id) ?? 0) + 1);
+    }
+    const usedPorts = new Map();
+    for (const [index, group] of ordered.entries()) {
+      const first = center(group.nodes[0]);
+      const last = center(group.nodes.at(-1));
+      const bus = childTop - rowGap / 2;
+      const lane = height + rowGap * (1 + (index + 1) / (ordered.length + 1));
+      const branch = ordered.length > 1 ? index % 4 : null;
+      const labelStart = first - cardWidth / 2;
+      group.label.style.left = `${labelStart}px`;
       group.label.style.top = `${headerTop}px`;
-      const parents = [root, ...partners.filter((partner) => partner.person.id === group.partner?.id)];
-      for (const parent of parents) {
-        const port = (index - (childGroups.length - 1) / 2) * Math.min(rem / 2, cardWidth / childGroups.length);
-        verticalLine(paths, { x: center(parent) + port, y: peerTop + parent.height },
-          { x: joint, y: middle }, middle, branch, group.id);
-      }
-      for (const child of group.nodes) {
-        position(child, childTop);
-        verticalLine(paths, { x: joint, y: middle }, { x: center(child), y: childTop },
-          middle, branch, group.id);
-      }
+      const offset = (index - (ordered.length - 1) / 2) * Math.min(rem / 2, cardWidth / ordered.length);
+      const id = group.partner?.id;
+      const junction = partnershipJunctions.get(id);
+      const groupCount = familyCounts.get(id);
+      const used = usedPorts.get(id) ?? 0;
+      usedPorts.set(id, used + 1);
+      const port = (junction?.side === -1 ? groupCount - 1 - used : used) * Math.min(rem / 4, cardWidth / groupCount);
+      const start = junction ? { x: junction.x - junction.side * port, y: junction.y }
+        : { x: center(root) + offset, y: root.y + root.height };
+      const entry = Math.abs(start.x - first) <= Math.abs(start.x - last) ? labelStart : last + cardWidth / 2;
+      const line = verticalLine(paths, start, { x: entry, y: bus }, lane, branch, group.id);
+      const arms = group.nodes.map((child) => `M ${center(child)} ${bus} V ${childTop}`);
+      const farEnd = entry === labelStart ? last : first;
+      line.setAttribute("d", `${line.getAttribute("d")} H ${farEnd} ${arms.join(" ")}`);
+      for (const child of group.nodes) position(child, childTop);
     }
     height = childTop + Math.max(...children.map((node) => node.height)) + inset;
   }
   const first = children.length ? 1 : 0;
-  columns.forEach(({ name, nodes }, index) => {
+  columns.forEach(({ name }, index) => {
     const heading = element("span", "generation", name);
     heading.style.left = `${inset / 3}px`;
-    heading.style.top = `${(index < first ? nodes[0].y : rowTop[index - first]) - rem}px`;
+    heading.style.top = `${index < first ? childHeading : rowTop[index - first] - rem}px`;
     stage.append(heading);
   });
   return { width: Math.max(right - left, cardWidth + inset * 2), height, center };

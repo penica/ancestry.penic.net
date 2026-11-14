@@ -71,6 +71,12 @@
           </div>
         </div>
         <div class="pedigree-tool-row">
+          <label class="chart-layout" for="pedigree-layout">Layout
+            <select id="pedigree-layout" disabled>
+              <option value="horizontal">Horizontal</option>
+              <option value="vertical">Vertical</option>
+            </select>
+          </label>
           <details class="pedigree-tool-panel">
             <summary>Chart tools</summary>
             <div class="pedigree-tools">
@@ -96,12 +102,6 @@
                 <div class="chart-navigation">
                   <label for="pedigree-generation">Go to generation
                     <select id="pedigree-generation" disabled></select>
-                  </label>
-                  <label for="pedigree-layout">Layout
-                    <select id="pedigree-layout" disabled>
-                      <option value="horizontal">Horizontal</option>
-                      <option value="vertical">Vertical</option>
-                    </select>
                   </label>
                   <label class="children-toggle"><input id="pedigree-family-groups" type="checkbox" disabled> Show family groups</label>
                   <label class="children-toggle"><input id="pedigree-show-children" type="checkbox"{% if chart_settings.children %} checked{% endif %} disabled> Show children</label>
