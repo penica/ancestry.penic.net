@@ -20,6 +20,10 @@ const countFormat = new Intl.NumberFormat("en");
 const shareButton = document.querySelector("#pedigree-share");
 const saveChartButton = document.querySelector("#pedigree-save-chart");
 const phoneLayout = matchMedia("(max-width: 43rem), (max-width: 56rem) and (max-height: 32rem) and (orientation: landscape)");
+const phoneFamily = document.querySelector("#pedigree-family");
+const phoneFamilyButton = document.querySelector("#show-phone-family");
+const phoneChartButton = document.querySelector("#show-phone-chart");
+const skipLink = document.querySelector("#pedigree-skip");
 const phoneTools = document.querySelector("#pedigree-phone-tools");
 const toolbar = document.querySelector(".page-header .controls");
 const extraActions = [shareButton, document.querySelector("#pedigree-publish"), document.querySelector("#pedigree-reset")].filter(Boolean);
@@ -85,6 +89,9 @@ let branchRequest;
 let saveScrollTimer;
 let chartScale = 1;
 let resizeChart;
+let phoneView = SHARED_PATH ? "chart" : "family";
+let chartPosition = null;
+let familyScrollTop = 0;
 
 function treeURL(path) {
   const url = new URL(path, location.origin);
@@ -120,7 +127,18 @@ function previousPerson() {
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
+function capturePosition() {
+  const chart = viewport.hidden ? chartPosition : {
+    scrollLeft: viewport.scrollLeft, scrollTop: viewport.scrollTop,
+  };
+  return {
+    ...chart,
+    familyScrollTop: phoneFamily.hidden ? familyScrollTop : phoneFamily.scrollTop,
+  };
+}
+
 function captureChartView() {
+  const { scrollLeft = 0, scrollTop = 0 } = capturePosition();
   return {
     depth: initialDepth.value,
     descendantDepth: Number(descendantDepth.value),
@@ -130,8 +148,8 @@ function captureChartView() {
     layout: layoutSelect.value,
     gaps: gapToggle.checked,
     scale: chartScale,
-    scrollLeft: viewport.scrollLeft,
-    scrollTop: viewport.scrollTop,
+    scrollLeft,
+    scrollTop,
     branches: [...branchExpansions].map(([key, branches]) => [key, [...branches.keys()]]),
     collapsedPartners: [],
     collapsedBranches: [...collapsedBranches],
@@ -142,12 +160,17 @@ function saveChartView() {
   if (chartData?.root.person.id !== currentPerson() || viewport.getAttribute("aria-busy") === "true") return;
   const person = currentPerson();
   const chartView = { tree: TREE, person, ...captureChartView() };
-  history.replaceState({ ...history.state, chartView }, "", location.pathname === SHARED_PATH ? location.href : personURL(person));
+  const { scrollTop, familyScrollTop } = capturePosition();
+  history.replaceState({ ...history.state, chartView, chartPositionSaved: Number.isFinite(scrollTop), familyScrollTop, phoneView }, "",
+    location.pathname === SHARED_PATH ? location.href : personURL(person));
 }
 
 function historyView() {
   const view = history.state?.chartView;
-  if (view?.tree === TREE && view?.person === currentPerson()) return view;
+  if (view?.tree === TREE && view?.person === currentPerson()) {
+    const { chartPositionSaved, familyScrollTop } = history.state;
+    return { ...view, scrollTop: chartPositionSaved === false ? undefined : view.scrollTop, familyScrollTop };
+  }
   return location.pathname === SHARED_PATH ? JSON.parse(document.body.dataset.sharedView) : null;
 }
 
@@ -217,10 +240,14 @@ function personCard(person, role = "") {
     element("span", "person-name", person.name),
     id,
   );
-  card.append(
-    title,
-    element("span", "person-fact", person.birth ? factText(person.birth) : "Birth details unknown"),
-  );
+  card.append(title);
+  appendVitalFacts(card, person);
+  appendGapFlags(card, person.id);
+  return card;
+}
+
+function appendVitalFacts(node, person) {
+  node.append(element("span", "person-fact", person.birth ? factText(person.birth) : "Birth details unknown"));
   const death = person.death;
   const age = person.age_at_death;
   if (death || age) {
@@ -235,12 +262,10 @@ function personCard(person, role = "") {
       line.append(death ? " " : "", label, element("span", "visually-hidden", ` ${fullAge}`));
     }
     if (death?.place) line.append(` · ${death.place}`);
-    card.append(line);
+    node.append(line);
   } else if (!person.living) {
-    card.append(element("span", "person-fact", "Death details unknown"));
+    node.append(element("span", "person-fact", "Death details unknown"));
   }
-  appendGapFlags(card, person.id);
-  return card;
 }
 
 function cardDetailAction(person, key, action, label) {
@@ -254,6 +279,97 @@ function cardDetailAction(person, key, action, label) {
   button.setAttribute("aria-controls", "person-details");
   button.addEventListener("click", () => void openDetails(person, button));
   return button;
+}
+
+function familySection(label, people, key, marriageFacts = [], partnerMarriages = {}) {
+  const section = element("section", "phone-family-section");
+  section.append(element("h3", "", label));
+  for (const marriage of marriageFacts) section.append(element("p", "phone-marriage", factText(marriage)));
+  const list = element("ul", "phone-family-list");
+  for (const person of people) {
+    const row = element("li", "phone-family-row");
+    const card = personCard(person);
+    for (const fact of partnerMarriages[person.id] ?? []) {
+      card.append(element("span", "phone-marriage", factText(fact)));
+    }
+    row.append(card, cardDetailAction(person, `family/${key}/${person.id}`, "details", "Details"));
+    list.append(row);
+  }
+  section.append(list);
+  return section;
+}
+
+function displayPhoneFamily(data, moveFocus) {
+  const { person, parents, marriage } = data.root;
+  rootHeading.textContent = person.name;
+  document.title = `${person.name} · Family pedigree`;
+  const startingFacts = element("div", "phone-starting-facts");
+  startingFacts.append(element("span", "person-id", `#${person.id}`));
+  appendVitalFacts(startingFacts, person);
+  phoneFamily.replaceChildren(startingFacts);
+  if (parents.length) {
+    phoneFamily.append(familySection("Parents", parents.map((parent) => parent.person), "parents", marriage ? [marriage] : []));
+  }
+  if (data.siblings.length) {
+    phoneFamily.append(familySection("Siblings", data.siblings.map((sibling) => sibling.person), "siblings"));
+  }
+  if (data.partners.length) {
+    phoneFamily.append(familySection("Partners", data.partners, "partners", [], data.partner_marriages));
+  }
+  if (data.child_families.length) {
+    for (const family of data.child_families) {
+      const label = family.partner ? `Children with ${family.partner.name}` : "Children";
+      phoneFamily.append(familySection(label, family.children, family.id, family.marriage ? [family.marriage] : []));
+    }
+  } else if (data.children.length) {
+    phoneFamily.append(familySection("Children", data.children, "children"));
+  }
+  if (phoneFamily.children.length === 1) {
+    phoneFamily.append(element("p", "phone-marriage", "No immediate family recorded."));
+  }
+  if (moveFocus) rootHeading.focus({ preventScroll: true });
+}
+
+function syncPhoneView() {
+  const family = phoneLayout.matches && phoneView === "family";
+  if (family && document.body.classList.contains("chart-fullscreen")) setFullScreen(false);
+  document.body.classList.toggle("phone-family-view", family);
+  phoneFamilyButton.setAttribute("aria-pressed", String(family));
+  phoneChartButton.setAttribute("aria-pressed", String(!family));
+  skipLink.hash = family ? phoneFamily.id : viewport.id;
+  return family;
+}
+
+function displayPedigree(data, moveFocus, position) {
+  chartPosition = Number.isFinite(position?.scrollTop) ? position : null;
+  familyScrollTop = position?.familyScrollTop ?? 0;
+  if (syncPhoneView()) {
+    resizeChart = null;
+    viewport.hidden = true;
+    viewport.replaceChildren();
+    phoneFamily.hidden = false;
+    displayPhoneFamily(data, moveFocus);
+    phoneFamily.scrollTop = familyScrollTop;
+  } else {
+    phoneFamily.hidden = true;
+    displayGraph(data, moveFocus);
+    if (chartPosition) viewport.scrollTo(chartPosition.scrollLeft, chartPosition.scrollTop);
+  }
+}
+
+function switchPhoneView(view) {
+  const wasFamily = !phoneFamily.hidden;
+  const focusWasInPane = (wasFamily ? phoneFamily : viewport).contains(document.activeElement);
+  const position = capturePosition();
+  phoneView = view;
+  if (chartData) {
+    displayPedigree(chartData, false, position);
+    if (focusWasInPane && wasFamily !== !phoneFamily.hidden) rootHeading.focus({ preventScroll: true });
+  } else {
+    syncPhoneView();
+  }
+  void updateDescendantDepth();
+  saveChartView();
 }
 
 function stageNode(stage, person, role, branch, generation, key, child = null) {
@@ -330,6 +446,10 @@ async function fetchBranches(frontier, signal, allowMissing = false) {
 }
 
 function redrawBranch(key, before) {
+  if (viewport.hidden) {
+    saveChartView();
+    return;
+  }
   const hadPartnerLabels = Boolean(viewport.querySelector(".partner-marriage"));
   displayGraph(chartData, false);
   const button = viewport.querySelector(`[data-branch-key="${key}"]`);
@@ -1233,7 +1353,8 @@ async function updateDescendantDepth() {
   if (treeStatus.textContent === "Loading descendants…") treeStatus.textContent = "";
   const snapshot = chartData;
   const depth = requestedDescendantDepth();
-  if (!snapshot || depth === 1 || depth === loadedDescendantDepth || viewport.getAttribute("aria-busy") === "true") return;
+  if (viewport.hidden || !snapshot || depth === 1 || depth === loadedDescendantDepth ||
+      viewport.getAttribute("aria-busy") === "true") return;
   const request = new AbortController();
   descendantRequest = request;
   treeStatus.textContent = "Loading descendants…";
@@ -1301,6 +1422,8 @@ async function loadTree(id, moveFocus = false, view = null, refresh = false) {
   if (!id) {
     viewport.hidden = true;
     viewport.replaceChildren();
+    phoneFamily.hidden = true;
+    phoneFamily.replaceChildren();
     rootHeading.textContent = "This tree has no people";
     treeStatus.textContent = "Choose another tree or add someone in RootsMagic.";
     viewport.removeAttribute("aria-busy");
@@ -1329,20 +1452,19 @@ async function loadTree(id, moveFocus = false, view = null, refresh = false) {
     if (refresh && !notice) showRefreshSuccess(treeStatus, "Pedigree refreshed.");
     else treeStatus.textContent = notice;
     chartData = data;
-    displayGraph(data, moveFocus);
+    displayPedigree(data, moveFocus, view);
     selectedPerson = data.root.person;
     detailsButton.disabled = false;
     if (shareButton) shareButton.disabled = false;
     if (saveChartButton) saveChartButton.disabled = false;
-    if (view && Number.isFinite(view.scrollTop)) {
-      viewport.scrollTo(view.scrollLeft, view.scrollTop);
-    }
     return true;
   } catch (error) {
     if (request.signal.aborted) return;
     if (!selectedPerson) {
       viewport.hidden = true;
       viewport.replaceChildren();
+      phoneFamily.hidden = true;
+      phoneFamily.replaceChildren();
       rootHeading.textContent = "Pedigree unavailable";
       summary.textContent = "";
     }
@@ -1703,10 +1825,11 @@ function closeDetails() {
     detailsDialog.close();
     const key = detailsOpener?.dataset.cardKey;
     const action = detailsOpener?.dataset.cardAction;
-    const replacement = key && viewport.querySelector(
+    const activeView = viewport.hidden ? phoneFamily : viewport;
+    const replacement = key && activeView.querySelector(
       `[data-card-key="${CSS.escape(key)}"][data-card-action="${CSS.escape(action)}"]`,
     );
-    const opener = detailsOpener?.isConnected ? detailsOpener : replacement || detailsButton;
+    const opener = detailsOpener?.getClientRects().length ? detailsOpener : replacement || detailsButton;
     opener.focus({ preventScroll: true });
   }
 }
@@ -1763,7 +1886,7 @@ async function openDetails(person = selectedPerson, opener = detailsButton, refr
 
 detailsButton.addEventListener("click", () => void openDetails());
 function refreshTree() {
-  const position = { scrollLeft: viewport.scrollLeft, scrollTop: viewport.scrollTop };
+  const position = capturePosition();
   countRequest?.abort();
   const request = new AbortController();
   countRequest = request;
@@ -1931,17 +2054,18 @@ window.addEventListener("popstate", () => {
   void loadTree(currentPerson(), true, historyView());
 });
 
-viewport.addEventListener("scroll", () => {
+function scheduleSaveView() {
   clearTimeout(saveScrollTimer);
   saveScrollTimer = setTimeout(saveChartView, 350);
-}, { passive: true });
+}
+for (const pane of [viewport, phoneFamily]) pane.addEventListener("scroll", scheduleSaveView, { passive: true });
 window.addEventListener("pagehide", saveChartView);
 window.addEventListener("resize", () => resizeChart?.());
 
 function setFullScreen(enabled) {
   document.body.classList.toggle("chart-fullscreen", enabled);
   fullScreen.setAttribute("aria-pressed", String(enabled));
-  fullScreen.textContent = enabled ? "Exit full screen" : "Full screen";
+  fullScreen.firstElementChild.textContent = enabled ? "Exit full screen" : "Full screen";
   resizeChart?.();
 }
 
@@ -1976,5 +2100,11 @@ descendantDepth.addEventListener("change", () => {
   saveChartView();
 });
 restoreSignInView();
+const previousPhoneView = history.state?.phoneView;
+if (previousPhoneView === "family" || previousPhoneView === "chart") phoneView = previousPhoneView;
+phoneFamilyButton.addEventListener("click", () => switchPhoneView("family"));
+phoneChartButton.addEventListener("click", () => switchPhoneView("chart"));
+phoneLayout.addEventListener("change", () => switchPhoneView(phoneView));
+syncPhoneView();
 void loadTree(currentPerson(), false, historyView());
 initialDepth.addEventListener("change", () => void loadTree(currentPerson()));

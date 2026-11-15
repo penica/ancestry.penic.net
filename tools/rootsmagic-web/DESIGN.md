@@ -27,6 +27,8 @@ Widths: 64rem shell, 46rem reading measure; spacing 4, 8, 12, 16, 24, 32, 48px. 
 
 Layout: pedigree - fill the available screen below wrapping navigation -> scroll-body-shell (https://raw.githubusercontent.com/changeroa/StyleGallery/main/patterns/viewport-shell/scroll-body-shell.md); scroll owner: `.viewport`; anti-patterns: fixed header-height offsets and a capped canvas width. On very short screens the document can scroll to preserve a usable chart. Keep 16–32px side gutters and a 24px bottom gutter.
 
+Layout: phone family - full-width rows in a vertical reading pane below search, the current person's name, and the view switch. The pane scrolls independently and puts parents first, followed by siblings, partners, and children grouped by recorded family. Tapping a name starts from that person, and Details opens the same panel as the chart. Chart controls apply to the chart view. Open a saved or shared chart in Chart view.
+
 - Search by name or RootsMagic ID and select any person card to change the starting person. Place siblings in the starting column and use the starting person's parent links for the chart. Show the current name, generation headings, vital facts, marriage facts, and a reset link.
 - Calculate age at death in the read-only data layer and pass the same formatted value to cards, details, Family rows, and PDF export. Measure the age with the rest of the card text before placing PDF cards.
 - When multiple files are available, use the same **Tree** selector in the chart and directory. Scope routes by the configured tree slug, including direct person links, evidence, and PDF requests. Person IDs belong to their tree.
@@ -93,7 +95,7 @@ Layout: API key settings - reuse the system navigation and administrator form an
 ## Browser checks before shipping
 
 - Test a desktop and a phone width in light and dark mode. Verify the chart is the scrolling region, generation controls fit, and the fixed panel header leaves room to scroll the details.
-- Open **On this day** from the masthead and from **Chart tools** at phone width. Check the date picker, Today, tree switching, pedigree links, empty groups and the External Reader view.
+- Open **On this day** from the masthead and from **Tools** at phone width. Check the date picker, Today, tree switching, pedigree links, empty groups and the External Reader view.
 - Open #406 in both default files and verify the directory, chart, record, and links agree within each tree. Check that **Reset view** stays in that tree.
 - Check that **Full screen** grows the chart, **Refresh** reloads it in place, Escape exits full screen, **Fit to view** shows all cards, and zoom keeps the chart centered near the same point. On wide screens, full-screen **Refresh** sits beside **View details**. After opening and closing branches and changing the zoom, re-root and use **Previous person** to restore the view.
 - Open Anton Mihelčič (#290) in Horizontal with **Family groups** on. Check that Michael Mihelčič (#742) and Maria Straschar (#743) have separate brackets connecting them to their own parents, and that the marriage labels are still readable.
@@ -112,6 +114,6 @@ Layout: API key settings - reuse the system navigation and administrator form an
 
 ## Verification for charts and publications
 
-- At 320 and 390 px, tablet, and desktop, check both layouts in light and dark. At 390 × 844, measure at least 422 px of chart with controls closed. Verify touch panning, Search and Escape, details focus restoration, open or collapsed branches, full screen, and refresh. Check Safari/WebKit and Chromium on representative phone sizes.
+- At 320 and 393 px, short landscape, and desktop, check the available views in light and dark in both WebKit and Chromium. On phones, verify the Family pane opens first, names and facts wrap without horizontal scrolling, and relatives below the fold remain reachable. Switch to Chart in both directions and verify the person, saved chart settings, and scroll positions. Verify touch panning, search, Escape, details focus restoration, branch controls, full screen, and refresh.
 - Test repeated partnerships, a parent who is unknown, and restricted-reader access. Reopen a private chart in its owner’s session, verify another session cannot read or change it, and repeat after removing tree access. Use a name with accents and enough follow-ups for more than one page.
 - Run `python3 -m unittest discover -s tools/rootsmagic-web/tests` from the workspace. Verify the deployed validator against a staged copy and a deliberately incompatible schema. Interrupt an isolated publish after a media write, recover it twice, then restore the previous snapshot and media using the matching preview.

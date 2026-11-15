@@ -48,13 +48,14 @@ function invalidateGaps() {
 }
 
 function redrawWithScroll() {
+  if (viewport.hidden) return;
   const { scrollLeft, scrollTop } = viewport;
   displayGraph(chartData, false);
   viewport.scrollTo(scrollLeft, scrollTop);
 }
 
 async function loadVisibleGaps() {
-  if (!gapToggle.checked || gapRequest) return;
+  if (viewport.hidden || !gapToggle.checked || gapRequest) return;
   const ids = [...new Set([...viewport.querySelectorAll(".person-card")]
     .map((card) => Number(card.dataset.personId)))].filter((id) => !gapsByPerson.has(id));
   if (!ids.length) return;

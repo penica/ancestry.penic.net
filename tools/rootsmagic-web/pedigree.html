@@ -19,7 +19,7 @@
   {% if publish_token %}<script defer src="{{ asset('pedigree-publish.js') }}"></script>{% endif %}
 </head>
 <body data-tree="{{ tree.slug }}" data-starting-person="{{ starting_person }}"{% if reader_session %} data-hosted="true"{% endif %}{% if tree.external %} data-external-reader="true"{% endif %}{% if shared_view %} data-shared-person="{{ shared_person }}" data-shared-view="{{ shared_view }}"{% endif %}>
-  <a class="skip-link" href="#pedigree-viewport">Skip to chart</a>
+  <a class="skip-link" id="pedigree-skip" href="#pedigree-viewport">Skip to pedigree</a>
   {% with pedigree_header=true %}{% include "reader-masthead.html" %}{% endwith %}
   <main class="shell">
     <div class="page-header">
@@ -69,18 +69,22 @@
             <output id="pedigree-zoom-level" aria-label="Zoom level">100%</output>
             <button class="reset zoom-button" id="pedigree-zoom-in" type="button" aria-label="Zoom in" disabled>+</button>
             <button class="reset" id="pedigree-fit" type="button" aria-label="Fit to view" disabled>Fit<span class="fit-description">&nbsp;to view</span></button>
-            <button class="reset" id="pedigree-fullscreen" type="button" aria-pressed="false">Full screen</button>
+            <button class="reset" id="pedigree-fullscreen" type="button" aria-pressed="false"><span>Full screen</span></button>
           </div>
         </div>
         <div class="pedigree-tool-row">
-          <label class="chart-layout" for="pedigree-layout">Layout
+          <div class="phone-view-switch" role="group" aria-label="Pedigree view">
+            <button class="reset" id="show-phone-family" type="button" aria-controls="pedigree-family" aria-pressed="false">Family</button>
+            <button class="reset" id="show-phone-chart" type="button" aria-controls="pedigree-viewport" aria-pressed="true">Chart</button>
+          </div>
+          <label class="chart-layout" for="pedigree-layout"><span class="chart-layout-label">Layout</span>
             <select id="pedigree-layout" disabled>
               <option value="horizontal">Horizontal</option>
               <option value="vertical">Vertical</option>
             </select>
           </label>
           <details class="pedigree-tool-panel">
-            <summary>Chart tools</summary>
+            <summary><span class="chart-tools-prefix">Chart </span>Tools</summary>
             <div class="pedigree-tools">
               <div class="pedigree-tool-group" role="group" aria-labelledby="pedigree-research-tools">
                 <h3 id="pedigree-research-tools">Research</h3>
@@ -160,6 +164,7 @@
       </div>
       <p id="pedigree-status" class="tree-status" role="status">Loading the pedigree…</p>
       <div id="pedigree-viewport" class="viewport" tabindex="0" role="region" aria-label="Pedigree chart" aria-describedby="pedigree-hint" hidden></div>
+      <div id="pedigree-family" class="phone-family" tabindex="0" role="region" aria-label="Immediate family" hidden></div>
     </section>
     <noscript><p>Enable JavaScript to explore the pedigree.</p></noscript>
   </main>
