@@ -92,7 +92,7 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
                 error=error,
                 csrf_token=csrf,
                 passkeys_available=passkeys_available(access, request),
-                mail_recovery_available=Mail(access.store()).account_links_available()
+                mail_recovery_available=Mail(access.store()).password_reset_available()
                 if name == "reader-login.html" else False,
             ),
             status_code=status,
@@ -182,7 +182,7 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
                 person_summary=person_summary,
                 person_available=person_available,
                 mfa_available=store.mfa_available,
-                mail_recovery_available=Mail(store).account_links_available() if field == "email" else False,
+                mail_verification_available=Mail(store).configured() if field == "email" else False,
             ),
             status_code=status,
         )

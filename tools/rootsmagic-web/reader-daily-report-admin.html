@@ -5,7 +5,7 @@
   <h2 id="daily-report-title">Daily report</h2>
   <p class="muted">Set the delivery schedule for readers who subscribe to the On this day email.</p>
   {% if not mail_ready %}
-  <p class="account-message">Delivery is paused until you configure TLS, STARTTLS, or a local mail relay in <a href="/system/email">Email server</a>.</p>
+  <p class="account-message">Configure a mail relay in <a href="/system/email">Email server</a> to deliver reports.</p>
   {% endif %}
   <form class="account-form" action="/system/daily-report" method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

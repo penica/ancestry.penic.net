@@ -8,7 +8,7 @@ The VM reader uses invitation-based accounts. **Reader** gives family members ac
 
 Open **Account → Account settings** on the VM to edit your name, username, contact email, and password. Choose **My person** to find your record by name or RootsMagic ID in an assigned tree. Once saved, the **My person** button in the header and the **Account → My person** entry both open that record. The choice is saved per tree.
 
-When email recovery is available, open **Account settings → Email**, save your address, and select **Send verification email**. Follow the confirmation link within 30 minutes. A verified address enables **Forgot your password?** at sign-in. A password reset ends existing sessions and keeps your two-step verification and passkeys. Contact your tree administrator for recovery when email recovery is unavailable.
+Open **Account settings → Email**, save your address, and select **Send verification email**. Follow the confirmation link within 30 minutes. A verified address lets you receive daily reports and use **Forgot your password?** when the reader's email setup supports password recovery. A password reset ends existing sessions and keeps your two-step verification and passkeys. Contact your tree administrator for recovery when email recovery is unavailable.
 
 ### External Reader access
 

@@ -163,7 +163,7 @@ def run_daily_report(access: ReaderAccess, now: datetime) -> int:
     if day is None:
         return 0
     mail = Mail(accounts)
-    if not mail.account_links_available():
+    if not mail.configured():
         return 0
     with accounts._connect(write=True) as db:
         db.execute(
@@ -196,7 +196,7 @@ def run_daily_report(access: ReaderAccess, now: datetime) -> int:
             continue
         outcome = "sent"
         try:
-            mail.send_private_email(recipient.email, subject, reports[tree])
+            mail.send_saved(recipient.email, subject, reports[tree])
         except MailError:
             outcome = "failed"
             LOG.warning(

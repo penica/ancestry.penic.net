@@ -219,16 +219,21 @@ class Mail:
             row = settings_row(db)
         self._send(recipient, subject, text, row, draft, password)
 
-    def account_links_available(self) -> bool:
-        """Enable account links only over TLS or through a local relay."""
+    def configured(self) -> bool:
+        """Report whether the administrator has saved a mail relay."""
+        with self.accounts._connect() as db:
+            return settings_row(db) is not None
+
+    def password_reset_available(self) -> bool:
+        """Enable password reset links over TLS or through a local relay."""
         with self.accounts._connect() as db:
             row = settings_row(db)
-        return row is not None and self._account_link_transport(
+        return row is not None and self._password_reset_transport(
             SMTPSettings.model_validate_json(row["configuration"])
         )
 
     @staticmethod
-    def _account_link_transport(settings: SMTPSettings) -> bool:
+    def _password_reset_transport(settings: SMTPSettings) -> bool:
         if settings.security != "none":
             return True
         if settings.uses_authentication:
@@ -238,19 +243,17 @@ class Mail:
         except ValueError:
             return False
 
-    def send_account_link(self, recipient: str, subject: str, text: str) -> None:
-        """Deliver an account link through the configured protected mail transport."""
-        self.send_private_email(recipient, subject, text)
-
-    def send_private_email(self, recipient: str, subject: str, text: str) -> None:
-        """Deliver private reader mail through the protected transport."""
+    def send_saved(
+        self, recipient: str, subject: str, text: str, *, password_reset: bool = False
+    ) -> None:
+        """Use the administrator's mail relay for reader-generated messages."""
         with self.accounts._connect() as db:
             row = settings_row(db)
         if row is None:
             raise MailError("Configure the email server first.")
         settings = SMTPSettings.model_validate_json(row["configuration"])
-        if not self._account_link_transport(settings):
-            raise MailError("Private reader emails require TLS or a local mail relay.")
+        if password_reset and not self._password_reset_transport(settings):
+            raise MailError("Password reset emails require TLS or a local mail relay.")
         self._send(mail_address(recipient), subject, text, row, settings, "")
 
     def _send(

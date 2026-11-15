@@ -30,6 +30,7 @@ from reader_api_keys import ApiKeys
 from reader_comments import CommentDraft, Comments, ReaderActor
 from reader_daily_report import Recipient, claim, report_body, save_subscription, scheduled_day
 from reader_external import ExternalTree
+from reader_mail import Mail, SMTPSettings
 from reader_settings import DailyReportSettings
 from reader_tree_state import TreeState
 from store import Citation, PersonID, connect, pedigree_search
@@ -318,6 +319,18 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("https://reader.test/pedigree?person=20&tree=fixture", body)
         self.assertNotIn("Secret", body)
         self.assertNotIn("person=10", body)
+
+    def test_unauthenticated_lan_relay_is_configured_for_reports(self) -> None:
+        owner = self.accounts.bootstrap_admin("owner", PASSWORD)
+        mail = Mail(self.accounts)
+        self.assertFalse(mail.configured())
+        mail.save(
+            owner.id,
+            SMTPSettings(host="192.0.2.10", port=25, security="none", sender="reader@example.test"),
+            "",
+        )
+        self.assertTrue(mail.configured())
+        self.assertFalse(mail.password_reset_available())
 
     def test_hosted_media_fails_closed_without_map(self) -> None:
         from pedigree_evidence import StoredMedia, recorded_path

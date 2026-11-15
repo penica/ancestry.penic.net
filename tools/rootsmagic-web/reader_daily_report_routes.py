@@ -40,7 +40,7 @@ def daily_report_router(access: ReaderAccess, templates: Environment) -> APIRout
                 delivery_time=schedule.delivery_time.strftime("%H:%M")
                 if schedule.delivery_time
                 else "",
-                mail_ready=Mail(access.store()).account_links_available(),
+                mail_ready=Mail(access.store()).configured(),
                 error=error,
                 notice="Daily report schedule saved." if saved else "",
             ),
@@ -63,7 +63,7 @@ def daily_report_router(access: ReaderAccess, templates: Environment) -> APIRout
                 trees=trees,
                 selected_tree=read_subscription(accounts, session.account.id),
                 enabled=site_settings().daily_report.enabled,
-                mail_ready=Mail(accounts).account_links_available(),
+                mail_ready=Mail(accounts).configured(),
                 error=error,
                 notice="Daily report preference saved." if saved else "",
             ),

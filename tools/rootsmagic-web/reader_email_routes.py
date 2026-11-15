@@ -53,11 +53,12 @@ def email_router(access: ReaderAccess, templates: Environment) -> APIRouter:
         description = "Verify your email address" if purpose == "verify" else "Reset your password"
         url = access.origin + path + "?" + urlencode({"token": token})
         try:
-            Mail(access.store()).send_account_link(
+            Mail(access.store()).send_saved(
                 recipient,
                 f"RootsMagic Reader · {description}",
                 f"{description} using this one-time link. It expires in 30 minutes.\n\n"
                 f"{url}\n\nIf you did not request this, you can ignore this email.",
+                password_reset=purpose == "reset",
             )
         except MailError:
             access.store().discard_email_token(token)
@@ -68,7 +69,7 @@ def email_router(access: ReaderAccess, templates: Environment) -> APIRouter:
     def deliver_reset(username: str, visitor: str | None) -> None:
         try:
             store = access.store()
-            if not Mail(store).account_links_available():
+            if not Mail(store).password_reset_available():
                 return
             if delivery := store.password_reset_link(username, visitor):
                 send_link(*delivery, "reset")
@@ -80,8 +81,8 @@ def email_router(access: ReaderAccess, templates: Environment) -> APIRouter:
         store = access.store()
         form = await security_form(request)
         try:
-            if not await run_in_threadpool(Mail(store).account_links_available):
-                raise MailError("Email verification requires a protected mail connection.")
+            if not await run_in_threadpool(Mail(store).configured):
+                raise MailError("Configure the email server first.")
             recipient, token = await run_in_threadpool(
                 store.email_verification_link, request.cookies.get(SESSION_COOKIE),
                 access.client_address(request), form.get("current_password", "")
