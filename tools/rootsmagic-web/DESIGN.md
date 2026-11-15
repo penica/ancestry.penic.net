@@ -66,7 +66,7 @@ Layout: selected-person details - preserve chart position beneath a native modal
 ## History and refresh
 
 - Each browser history entry stores its tree and person, depth, zoom, toggles, scroll position, and branch paths. **Previous person** reloads that view from the selected file. **Reset view** starts at the current tree's default person and participates in the same history. Chart controls and panel section jumps operate within the current entry.
-- Refresh uses the same person's URL and preserves history. Keep the last successful chart or panel visible if its request fails. Show progress and the outcome, and keep a retry available. A refresh from the panel requests the chart and details together, reports partial failures, and restores the panel position and open event disclosures when those events still exist.
+- Refresh uses the same person's URL and preserves history. Success messages clear after five seconds. Keep failure messages and the last successful chart or panel visible so the user can retry. A refresh from the panel requests the chart and details together, reports partial failures, and restores the panel position and open event disclosures when those events still exist.
 - Show **Publish** beside **Refresh** for the Mac working tree when publication is enabled. Display publication progress and its result independently of chart navigation and refresh. Submit from the local page with its request token and block repeated clicks while publication runs.
 - The pedigree endpoints use the live database described in the [reader guide](README.md). Responses use `Cache-Control: no-store`, and each request opens a read-only SQLite transaction. Run the compatibility checks in that guide after a RootsMagic upgrade.
 

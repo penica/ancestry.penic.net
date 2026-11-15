@@ -8,6 +8,7 @@ const SHARED_PATH = SHARED_PERSON ? location.pathname : "";
 const API = "/api/v1/pedigree";
 const SVG = "http://www.w3.org/2000/svg";
 const GENERATIONS = ["Starting person", "Parents", "Grandparents"];
+const REFRESH_SUCCESS_MS = 5000;
 const viewport = document.querySelector("#pedigree-viewport");
 const rootHeading = document.querySelector("#pedigree-root");
 const summary = document.querySelector("#pedigree-summary");
@@ -96,6 +97,12 @@ function element(tag, className, text) {
   if (className) node.className = className;
   if (text) node.textContent = text;
   return node;
+}
+
+function showRefreshSuccess(status, message) {
+  const confirmation = document.createTextNode(message);
+  status.replaceChildren(confirmation);
+  setTimeout(() => confirmation.remove(), REFRESH_SUCCESS_MS);
 }
 
 function personURL(id) {
@@ -1319,7 +1326,8 @@ async function loadTree(id, moveFocus = false, view = null, refresh = false) {
     }
     loadedDescendantDepth = depth;
     if (notice) descendantDepth.value = "1";
-    treeStatus.textContent = notice || (refresh ? "Pedigree refreshed." : "");
+    if (refresh && !notice) showRefreshSuccess(treeStatus, "Pedigree refreshed.");
+    else treeStatus.textContent = notice;
     chartData = data;
     displayGraph(data, moveFocus);
     selectedPerson = data.root.person;
@@ -1780,9 +1788,11 @@ async function refreshDetails() {
   ]);
   if (detailsRefresh !== attempt || !detailsDialog.open) return;
   const failed = [!chartUpdated && "the pedigree", !detailsUpdated && "person details"].filter(Boolean);
-  detailsStatus.textContent = failed.length
-    ? `Could not refresh ${failed.join(" and ")}. Try again.`
-    : "Pedigree and details refreshed.";
+  if (failed.length) {
+    detailsStatus.textContent = `Could not refresh ${failed.join(" and ")}. Try again.`;
+  } else {
+    showRefreshSuccess(detailsStatus, "Pedigree and details refreshed.");
+  }
   detailsRetry.hidden = !failed.length;
   detailsScroll.scrollTop = scrollTop;
 }
