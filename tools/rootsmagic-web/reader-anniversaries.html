@@ -42,11 +42,13 @@
         </div>
         <div>
           <label for="anniversary-month">Month</label>
-          <select id="anniversary-month" name="month" required>
-            {% for number, month in months %}
-            <option value="{{ number }}"{% if number == input_month %} selected{% endif %}>{{ month }}</option>
-            {% endfor %}
-          </select>
+          <div class="anniversary-month-control">
+            <select id="anniversary-month" name="month" required>
+              {% for number, month in months %}
+              <option value="{{ number }}"{% if number == input_month %} selected{% endif %}>{{ month }}</option>
+              {% endfor %}
+            </select>
+          </div>
         </div>
         <div>
           <label for="anniversary-year">Year</label>

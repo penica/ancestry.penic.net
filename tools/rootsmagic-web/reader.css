@@ -68,9 +68,27 @@ button:active { background: var(--wash); color: var(--ink); }
 .anniversary-date-fields label { color: var(--muted); font-size: var(--small); margin-block-end: var(--s1); }
 .anniversary-date-fields input, .anniversary-date-fields select {
   inline-size: 100%;
+  block-size: var(--target);
   padding-inline: var(--s2);
   color: var(--ink);
   background: var(--surface);
+}
+.anniversary-month-control { position: relative; }
+.anniversary-month-control select {
+  appearance: none;
+  padding-inline-end: var(--s6);
+}
+.anniversary-month-control::after {
+  content: "";
+  position: absolute;
+  inset-inline-end: var(--s3);
+  inset-block-start: 50%;
+  inline-size: var(--s2);
+  block-size: var(--s2);
+  border-inline-end: 2px solid var(--muted);
+  border-block-end: 2px solid var(--muted);
+  transform: translateY(-75%) rotate(45deg);
+  pointer-events: none;
 }
 .anniversary-date-controls a { padding-inline: var(--s2); }
 .anniversary-group + .anniversary-group { margin-block-start: var(--s4); }
