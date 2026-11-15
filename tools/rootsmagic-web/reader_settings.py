@@ -5,12 +5,14 @@ from __future__ import annotations
 import os
 import stat
 import sys
+from datetime import time
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import Lock
-from typing import Annotated, Final, Literal
+from typing import Annotated, Final, Literal, Self
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 
 class SettingsError(RuntimeError):
@@ -45,16 +47,45 @@ class BackupSettings(SettingsModel):
     retention: Annotated[int, Field(ge=3, le=60)] = 14
 
 
+class DailyReportSettings(SettingsModel):
+    enabled: bool = False
+    delivery_time: time | None = None
+    timezone: Annotated[str, Field(min_length=1, max_length=100)] = "Europe/Ljubljana"
+
+    @model_validator(mode="after")
+    def validate_schedule(self) -> Self:
+        try:
+            ZoneInfo(self.timezone)
+        except (ValueError, ZoneInfoNotFoundError) as error:
+            raise ValueError("Choose a valid IANA time zone.") from error
+        if self.enabled and self.delivery_time is None:
+            raise ValueError("Choose a delivery time before enabling reports.")
+        if self.delivery_time is not None and (
+            self.delivery_time.tzinfo
+            or self.delivery_time.second
+            or self.delivery_time.microsecond
+        ):
+            raise ValueError("Choose a local time with hours and minutes.")
+        return self
+
+
 class SiteSettings(SettingsModel):
     chart: ChartSettings = ChartSettings()
     sources: SourceSettings = SourceSettings()
     security: SecuritySettings = SecuritySettings()
     backups: BackupSettings = BackupSettings()
+    daily_report: DailyReportSettings = DailyReportSettings()
 
 
 WRITE_LOCK: Final = Lock()
-Section = Literal["chart", "sources", "security", "backups"]
-SectionSettings = ChartSettings | SourceSettings | SecuritySettings | BackupSettings
+Section = Literal["chart", "sources", "security", "backups", "daily_report"]
+SectionSettings = (
+    ChartSettings
+    | SourceSettings
+    | SecuritySettings
+    | BackupSettings
+    | DailyReportSettings
+)
 
 
 def settings_path(accounts_path: Path | None = None) -> Path:

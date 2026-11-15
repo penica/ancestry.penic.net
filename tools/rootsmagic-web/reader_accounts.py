@@ -84,6 +84,8 @@ REQUIRED_TABLES: Final = frozenset(
         "reader_verified_sessions",
         "reader_verified_email",
         "reader_email_tokens",
+        "reader_daily_report_preferences",
+        "reader_daily_report_deliveries",
     }
 )
 ACCOUNT_ID_FLOOR: Final = """
@@ -103,6 +105,15 @@ CREATE TABLE IF NOT EXISTS reader_email_tokens (
     purpose TEXT NOT NULL CHECK (purpose IN ('verify', 'reset')),
     token_hash BLOB NOT NULL UNIQUE, address TEXT NOT NULL, password_salt BLOB NOT NULL,
     expires_at INTEGER NOT NULL, PRIMARY KEY (account_id, purpose)
+);
+CREATE TABLE IF NOT EXISTS reader_daily_report_preferences (
+    account_id INTEGER PRIMARY KEY REFERENCES reader_accounts(id) ON DELETE CASCADE,
+    tree_slug TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS reader_daily_report_deliveries (
+    account_id INTEGER NOT NULL REFERENCES reader_accounts(id) ON DELETE CASCADE,
+    report_day TEXT NOT NULL, outcome TEXT NOT NULL CHECK (outcome IN ('claimed', 'sent', 'failed')),
+    PRIMARY KEY (report_day, account_id)
 );
 """
 SCHEMA: Final = f"""
@@ -1133,6 +1144,7 @@ class Accounts:
             if field == "email" and parameters[0] != current["email"]:
                 db.execute("DELETE FROM reader_verified_email WHERE account_id = ?", (account_id,))
                 db.execute("DELETE FROM reader_email_tokens WHERE account_id = ?", (account_id,))
+                db.execute("DELETE FROM reader_daily_report_preferences WHERE account_id = ?", (account_id,))
             verified = _session_verified(db, token_hash)
             _revoke_account_sessions(db, account_id)
             _clear_attempts(db, user, client)

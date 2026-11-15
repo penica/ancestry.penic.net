@@ -1,0 +1,10 @@
+[Unit]
+Description=Check the configurable RootsMagic Reader daily report schedule
+
+[Timer]
+OnCalendar=minutely
+AccuracySec=1s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

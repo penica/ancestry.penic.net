@@ -1,0 +1,30 @@
+{% extends "reader-account-shell.html" %}
+{% block title %}Daily report{% endblock %}
+{% block content %}
+<h1>Daily report</h1>
+<p>Get the On this day report by email for a tree you can open.</p>
+{% if not current_user.email %}
+<p class="account-message">Add your email address in <a href="/account/email">Email settings</a> before subscribing.</p>
+{% elif not current_user.email_verified %}
+<p class="account-message">Delivery starts after you verify your address in <a href="/account/email">Email settings</a>.</p>
+{% else %}
+<p class="muted">Reports will be sent to {{ current_user.email }}.</p>
+{% endif %}
+{% if not enabled or not mail_ready %}<p class="muted">Daily delivery is currently paused by the reader.</p>{% endif %}
+<form class="account-form" action="/account/daily-report" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label class="setting-check"><input type="checkbox" name="subscribed"{% if selected_tree %} checked{% endif %}{% if not current_user.email or not trees %} disabled{% endif %}> Email me the daily report</label>
+  {% if trees %}
+  <div class="account-field">
+    <label for="daily-report-tree">Tree</label>
+    <select id="daily-report-tree" name="tree">
+      {% for tree in trees %}<option value="{{ tree.slug }}"{% if tree.slug == selected_tree %} selected{% endif %}>{{ tree.name }}</option>{% endfor %}
+    </select>
+  </div>
+  {% endif %}
+  <div class="account-actions">
+    <button type="submit">Save preference</button>
+    <a class="back" href="/account">Back to account settings</a>
+  </div>
+</form>
+{% endblock %}

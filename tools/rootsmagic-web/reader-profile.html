@@ -82,6 +82,12 @@
       </a>
     </li>
     {% endfor %}
+    <li>
+      <a class="profile-link" href="/account/daily-report">
+        <span class="profile-label">Daily report</span>
+        <span class="profile-value">Email preferences</span>
+      </a>
+    </li>
     {% if mfa_available|default(false) %}
     <li>
       <a class="profile-link" href="/account/security" aria-labelledby="profile-mfa-label" aria-describedby="profile-mfa-value">

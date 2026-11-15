@@ -1,0 +1,25 @@
+{% extends "reader-system.html" %}
+{% block title %}Daily report{% endblock %}
+{% block system_content %}
+<section aria-labelledby="daily-report-title">
+  <h2 id="daily-report-title">Daily report</h2>
+  <p class="muted">Set the delivery schedule for readers who subscribe to the On this day email.</p>
+  {% if not mail_ready %}
+  <p class="account-message">Delivery is paused until you configure TLS, STARTTLS, or a local mail relay in <a href="/system/email">Email server</a>.</p>
+  {% endif %}
+  <form class="account-form" action="/system/daily-report" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label class="setting-check"><input type="checkbox" name="enabled"{% if schedule.enabled %} checked{% endif %}> Send daily reports</label>
+    <div class="account-field">
+      <label for="daily-report-time">Delivery time (24-hour)</label>
+      <input id="daily-report-time" name="delivery_time" pattern="(?:[01][0-9]|2[0-3]):[0-5][0-9]" placeholder="HH:MM" maxlength="5" value="{{ delivery_time }}">
+    </div>
+    <div class="account-field">
+      <label for="daily-report-zone">Time zone</label>
+      <input id="daily-report-zone" name="timezone" value="{{ schedule.timezone }}" maxlength="100" required aria-describedby="daily-report-zone-hint">
+      <p class="muted" id="daily-report-zone-hint">Use a time zone such as Europe/Ljubljana.</p>
+    </div>
+    <button type="submit">Save schedule</button>
+  </form>
+</section>
+{% endblock %}

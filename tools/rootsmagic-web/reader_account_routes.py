@@ -33,6 +33,7 @@ from reader_accounts import (
     admin_verification_required,
 )
 from reader_audit import audit
+from reader_daily_report_routes import daily_report_router
 from reader_email_routes import email_router
 from reader_mail import Mail, mail_address
 from reader_mfa_routes import mfa_router, start_mfa_login
@@ -69,6 +70,8 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
     router.include_router(email_router(access, templates))
     router.include_router(passkey_router(access, templates))
     router.include_router(system_router(access, templates))
+    if access.accounts is not None:
+        router.include_router(daily_report_router(access, templates))
 
     def form_page(
         request: Request,

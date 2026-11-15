@@ -240,13 +240,17 @@ class Mail:
 
     def send_account_link(self, recipient: str, subject: str, text: str) -> None:
         """Deliver an account link through the configured protected mail transport."""
+        self.send_private_email(recipient, subject, text)
+
+    def send_private_email(self, recipient: str, subject: str, text: str) -> None:
+        """Deliver private reader mail through the protected transport."""
         with self.accounts._connect() as db:
             row = settings_row(db)
         if row is None:
             raise MailError("Configure the email server first.")
         settings = SMTPSettings.model_validate_json(row["configuration"])
         if not self._account_link_transport(settings):
-            raise MailError("Verification and reset emails require TLS or a local mail relay.")
+            raise MailError("Private reader emails require TLS or a local mail relay.")
         self._send(mail_address(recipient), subject, text, row, settings, "")
 
     def _send(

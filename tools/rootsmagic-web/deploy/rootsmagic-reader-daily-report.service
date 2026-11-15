@@ -1,0 +1,25 @@
+[Unit]
+Description=Send scheduled RootsMagic Reader daily reports
+After=network-online.target rootsmagic-reader.service
+Wants=network-online.target
+RequiresMountsFor=/srv/rootsmagic-reader
+
+[Service]
+Type=oneshot
+User=penica
+Group=penica
+WorkingDirectory=/srv/rootsmagic-reader/current
+EnvironmentFile=/etc/rootsmagic-reader/reader.env
+Environment=ROOTSMAGIC_REQUIRE_ACCOUNTS=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+LoadCredential=mfa.key:/etc/rootsmagic-reader/mfa.key
+Environment=ROOTSMAGIC_MFA_KEY_FILE=%d/mfa.key
+ExecStart=/srv/rootsmagic-reader/current/.venv/bin/python /srv/rootsmagic-reader/current/reader_daily_report.py
+TimeoutStartSec=15min
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/srv/rootsmagic-reader/state
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes

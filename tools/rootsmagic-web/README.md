@@ -75,6 +75,8 @@ Open **On this day** from the reader header, or from **Chart tools** on a phone.
 
 **Born on this day** matches the recorded month and day and separates living and deceased people. The displayed birthday age uses the selected year. **Baptized on this day** also includes christenings and appears separately for people whose birth day is unknown. Select any row to open that person's pedigree. External Readers see only the deceased people and facts already visible to them in that tree.
 
+On the hosted reader, open **Account settings → Daily report** to subscribe for one of your trees or turn the email off. The report is sent to your verified account email and uses your current tree access. If you change your email address, verify the new address and subscribe again. An administrator sets the delivery time and time zone under **System settings → Daily report**.
+
 ## Database and troubleshooting
 
 - Before you save reader defaults, the reader lists the working `Vogrinc-Urek Penič-Hribar.rmtree` in the neighboring `Penic` project and `penic-vogrinc.rmtree` in the Ancestry workspace. Links without a tree use the configured default when it is available to the signed-in account.

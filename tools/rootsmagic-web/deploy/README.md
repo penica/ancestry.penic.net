@@ -64,6 +64,12 @@ When reviewing publication history for deletion, include the database snapshots,
 
 Keep one Uvicorn worker. The PDF and large-query limits are maintained in memory. Before switching `current` to a new release, run `bash deploy/check-release.sh "$PWD/.venv/bin/python"` from the candidate release. The suite uses temporary databases. Check the hosted sign-in page and a signed-out API request after restarting the service.
 
+### Daily On this day email
+
+Install `rootsmagic-reader-daily-report.service` and its timer from this directory, reload systemd, and enable the timer with `sudo systemctl enable --now rootsmagic-reader-daily-report.timer`. The timer checks saved settings each minute. An administrator chooses the send time and time zone in **System settings → Daily report**. Users opt in via **Account settings → Daily report** and choose an available tree. The job checks the current tree role and verified email address before sending.
+
+Verified email addresses and TLS, STARTTLS, or an unauthenticated loopback relay are required for these private reports. If the worker misses the send minute, it can catch up later on the same day. Each account gets at most one send attempt per report date. SMTP failures are recorded in the service journal and the next day runs independently. Delivery markers stay in the account database for up to 31 days while the schedule is running.
+
 Set `ROOTSMAGIC_SETTINGS_FILE` to an absolute private JSON file to override the saved settings location. Keep `ROOTSMAGIC_BACKUP_STATUS_FILE` consistent between the reader and the backup service. The default status directory is owned by root and readable by the reader group.
 
 Before updating an existing VM, back up the account database and run `.venv/bin/python reader_accounts.py migrate /srv/rootsmagic-reader/state/accounts.sqlite3` as `penica` from the tested release. The migration creates the API key table, adds missing account fields and tables, and enables the External Reader role in invitations and tree memberships. Existing accounts, access, sessions, and invitations are preserved. Restart the service with the updated release after migration.

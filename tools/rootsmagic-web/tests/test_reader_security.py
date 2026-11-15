@@ -7,7 +7,7 @@ import sqlite3
 import sys
 import unittest
 from contextlib import closing
-from datetime import date
+from datetime import UTC, date, datetime, time
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -28,7 +28,9 @@ from reader_accounts import Accounts, AccountsError, LoginChallenge, LoginThrott
 from reader_anniversaries import calendar_day, read_anniversaries
 from reader_api_keys import ApiKeys
 from reader_comments import CommentDraft, Comments, ReaderActor
+from reader_daily_report import Recipient, claim, report_body, save_subscription, scheduled_day
 from reader_external import ExternalTree
+from reader_settings import DailyReportSettings
 from reader_tree_state import TreeState
 from store import Citation, PersonID, connect, pedigree_search
 from tree_catalog import Tree
@@ -274,6 +276,48 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(calendar_day("D.+19000229..+00000000.."))
         self.assertIsNone(calendar_day("D.+20000229.A+00000000.."))
         self.assertIsNone(calendar_day("D-+20000228..+20000229.."))
+
+    def test_daily_report_schedule_uses_the_configured_timezone(self) -> None:
+        schedule = DailyReportSettings(enabled=True, timezone="Europe/Ljubljana", delivery_time=time(8, 30))
+        self.assertIsNone(scheduled_day(schedule, datetime(2026, 11, 15, 7, 29, tzinfo=UTC)))
+        self.assertEqual(
+            scheduled_day(schedule, datetime(2026, 11, 15, 7, 30, tzinfo=UTC)),
+            date(2026, 11, 15),
+        )
+        self.assertIsNone(scheduled_day(schedule.model_copy(update={"enabled": False}),
+                                        datetime(2026, 11, 15, 8, 30, tzinfo=UTC)))
+
+    def test_daily_report_claim_checks_current_role_and_deduplicates(self) -> None:
+        admin = self.accounts.bootstrap_admin("owner", PASSWORD)
+        invite = self.accounts.invite(admin.id, "reader", "fixture", Role.READER)
+        session = self.accounts.redeem(invite, PASSWORD)
+        address = "reader@example.test"
+        session = self.accounts.update_profile(session.token, None, "email", address, PASSWORD)
+        owner = session.session.account.id
+        with patch("reader_daily_report.available_trees", return_value=(self.tree,)):
+            with self.assertRaises(AccountsError):
+                save_subscription(self.accounts, session.token, "unassigned")
+            save_subscription(self.accounts, session.token, "fixture")
+        day = date(2026, 11, 15)
+        reader = Recipient(owner, address, "fixture", Role.READER)
+        self.assertFalse(claim(self.accounts, reader, day))
+        _, token = self.accounts.email_verification_link(session.token, None, PASSWORD)
+        self.accounts.verify_email_link(token)
+        self.accounts.set_membership(admin.id, owner, "fixture", Role.EXTERNAL_READER)
+        self.assertFalse(claim(self.accounts, reader, day))
+        external = Recipient(owner, address, "fixture", Role.EXTERNAL_READER)
+        self.assertTrue(claim(self.accounts, external, day))
+        self.assertFalse(claim(self.accounts, external, day))
+        save_subscription(self.accounts, session.token, None)
+        self.assertFalse(claim(self.accounts, external, date(2026, 11, 16)))
+
+    def test_daily_mail_contains_the_authorized_birth_projection(self) -> None:
+        from dataclasses import replace
+
+        body = report_body("https://reader.test", replace(self.tree, external=True), date(2026, 1, 1))
+        self.assertIn("https://reader.test/pedigree?person=20&tree=fixture", body)
+        self.assertNotIn("Secret", body)
+        self.assertNotIn("person=10", body)
 
     def test_hosted_media_fails_closed_without_map(self) -> None:
         from pedigree_evidence import StoredMedia, recorded_path
