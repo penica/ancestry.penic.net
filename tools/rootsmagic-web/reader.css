@@ -91,6 +91,44 @@ button:active { background: var(--wash); color: var(--ink); }
   pointer-events: none;
 }
 .anniversary-date-controls a { padding-inline: var(--s2); }
+.calendar-secondary {
+  border-color: var(--control);
+  background: var(--surface);
+  color: var(--accent);
+}
+.calendar-secondary:disabled { opacity: .5; cursor: default; }
+.anniversary-calendar {
+  inline-size: min(23rem, calc(100% - 2 * var(--s2)));
+  max-block-size: calc(100dvh - 2 * var(--s2));
+  padding: var(--s2);
+  border: 1px solid var(--control);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+}
+.anniversary-calendar::backdrop { background: rgb(0 0 0 / .5); }
+.calendar-heading, .calendar-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+.calendar-heading h2 { margin: 0; text-align: center; }
+.calendar-heading button { min-inline-size: var(--target); }
+.calendar-footer { justify-content: end; margin-block-start: var(--s2); }
+.calendar-grid { inline-size: 100%; table-layout: fixed; border-spacing: 0; margin-block-start: var(--s2); }
+.calendar-grid th { padding-block: var(--s1); color: var(--muted); font-size: var(--small); font-weight: normal; }
+.calendar-grid td { padding: 0; }
+.calendar-grid button {
+  inline-size: 100%;
+  padding-inline: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink);
+}
+.calendar-grid button:hover, .calendar-grid button:active { background: var(--wash); }
+.calendar-grid button[aria-pressed="true"] { border-color: var(--accent); background: var(--wash); }
+.calendar-grid button:focus-visible { outline-offset: -3px; }
 .anniversary-group + .anniversary-group { margin-block-start: var(--s4); }
 .anniversary-group h3, .anniversary-caption { margin-block-end: var(--s2); }
 .anniversary-person, .anniversary-meta { display: grid; }

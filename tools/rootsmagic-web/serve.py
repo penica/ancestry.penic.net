@@ -138,7 +138,7 @@ HERE: Final = Path(__file__).resolve().parent
 ASSET_NAMES: Final = (
     "family.css", "image-preview.css", "image-preview.js", "pedigree.css",
     "pedigree.js", "pedigree-publish.js", "pedigree-share.js", "pedigree-tools.js",
-    "pedigree-worklist.js", "reader.css", "reader-accounts.css",
+    "pedigree-worklist.js", "reader.css", "reader-accounts.css", "reader-calendar.js",
     "reader-email-settings.js", "reader-passkeys.js", "reader-profile.css",
 )
 ASSET_URLS: Final = {
@@ -470,7 +470,7 @@ async def local_headers(
         "/account/passkeys/remove",
     }:
         policy += "; script-src 'self'; connect-src 'self'"
-    elif request.url.path in {"/system/email", "/system/email/test"}:
+    elif request.url.path in {"/system/email", "/system/email/test", "/on-this-day"}:
         policy += "; script-src 'self'"
     elif request.url.path.startswith("/pedigree/people/") and request.url.path.endswith(
         "/record"

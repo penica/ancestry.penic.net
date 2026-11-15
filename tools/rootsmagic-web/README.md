@@ -71,7 +71,7 @@ Open the [live pedigree](http://127.0.0.1:8765/) or the [people directory](http:
 
 ## On this day
 
-Open **On this day** from the reader header, or from **Chart tools** on a phone. It opens on today's date in the Ljubljana time zone. Enter the day, choose the month by name, and enter the year. Use **Show date** to look up that date or **Today** to return. Changing trees keeps the selected date.
+Open **On this day** from the reader header, or from **Chart tools** on a phone. It opens on today's date in the Ljubljana time zone. Enter the day, month, and year, or open **Calendar** and select a date. Use **Show date** to look up that date or **Today** to return. Changing trees keeps the selected date.
 
 **Born on this day** matches the recorded month and day and separates living and deceased people. The displayed birthday age uses the selected year. **Baptized on this day** also includes christenings and appears separately for people whose birth day is unknown. Select any row to open that person's pedigree. External Readers see only the deceased people and facts already visible to them in that tree.
 

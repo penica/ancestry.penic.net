@@ -26,6 +26,7 @@
   <title>On this day · RootsMagic Reader</title>
   <link rel="stylesheet" href="{{ asset('reader.css') }}">
   <link rel="stylesheet" href="{{ asset('reader-accounts.css') }}">
+  <script defer src="{{ asset('reader-calendar.js') }}"></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content">Skip to content</a>
@@ -57,10 +58,32 @@
       </fieldset>
       <div class="anniversary-date-controls">
         <button type="submit">Show date</button>
+        <button id="calendar-open" class="calendar-secondary" type="button" aria-haspopup="dialog" aria-controls="anniversary-calendar" hidden>Calendar</button>
         <a class="back" href="{{ tree.url('/on-this-day') }}">Today</a>
       </div>
       {% if date_error %}<p id="anniversary-date-error" role="alert">{{ date_error }}</p>{% endif %}
     </form>
+    <dialog id="anniversary-calendar" class="anniversary-calendar" aria-labelledby="calendar-title" data-selected="{{ selected_date }}">
+      <div class="calendar-heading">
+        <button id="calendar-previous" class="calendar-secondary" type="button" aria-label="Previous month">‹</button>
+        <h2 id="calendar-title" aria-live="polite"></h2>
+        <button id="calendar-next" class="calendar-secondary" type="button" aria-label="Next month">›</button>
+      </div>
+      <table class="calendar-grid" aria-labelledby="calendar-title">
+        <thead>
+          <tr>
+            <th scope="col" abbr="Monday">Mo</th><th scope="col" abbr="Tuesday">Tu</th>
+            <th scope="col" abbr="Wednesday">We</th><th scope="col" abbr="Thursday">Th</th>
+            <th scope="col" abbr="Friday">Fr</th><th scope="col" abbr="Saturday">Sa</th>
+            <th scope="col" abbr="Sunday">Su</th>
+          </tr>
+        </thead>
+        <tbody id="calendar-days"></tbody>
+      </table>
+      <form class="calendar-footer" method="dialog">
+        <button class="calendar-secondary" type="submit">Close</button>
+      </form>
+    </dialog>
 
     {% if anniversaries %}
     <section aria-labelledby="births-heading">
