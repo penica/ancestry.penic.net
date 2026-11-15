@@ -591,6 +591,18 @@ function placeChildGroup(group, start, slot) {
   return x;
 }
 
+function measureVerticalAncestry(levels, slot) {
+  for (let level = levels.length - 1; level >= 0; level--) {
+    for (const node of levels[level]) {
+      const [left, right] = node.parents;
+      const spread = right ? (left.ancestryRight - right.ancestryLeft + slot) / 2 : 0;
+      node.parentSpread = spread;
+      node.ancestryLeft = (left?.ancestryLeft ?? 0) - spread;
+      node.ancestryRight = (right?.ancestryRight ?? left?.ancestryRight ?? 0) + spread;
+    }
+  }
+}
+
 function placeVerticalFamilies(root, partners, siblings, groups, slot) {
   const families = new Map(partners.map((partner) => [partner.person.id, { partner, groups: [] }]));
   const unpaired = [];
@@ -613,18 +625,27 @@ function placeVerticalFamilies(root, partners, siblings, groups, slot) {
   const half = (Math.max(1, size(unpaired)) - 1) * slot / 2;
   root.x = 0;
   place(unpaired, -half);
-  let left = -half - slot;
-  let right = half + slot;
+  siblings.forEach((node, index) => { node.x = half + (index + 1) * slot; });
+  const sides = [
+    { direction: -1, familyEdge: half + slot, ancestryEdge: -root.ancestryLeft + slot },
+    { direction: 1, familyEdge: half + (siblings.length + 1) * slot, ancestryEdge: root.ancestryRight + slot },
+  ];
   for (const [index, { partner, groups: children }] of [...families.values()].entries()) {
-    const span = (Math.max(1, size(children)) - 1) * slot;
-    const onLeft = index % 2 === 0;
-    const start = onLeft ? left - span : right;
-    place(children, start);
-    if (partner) partner.x = start + span / 2;
-    if (onLeft) left = start - slot;
-    else right = start + span + slot;
+    const halfSpan = (Math.max(1, size(children)) - 1) * slot / 2;
+    const side = sides[index % 2];
+    let distance = side.familyEdge + halfSpan;
+    if (partner?.parents.length) {
+      const onLeft = side.direction === -1;
+      const inner = onLeft ? partner.ancestryRight : -partner.ancestryLeft;
+      const outer = onLeft ? -partner.ancestryLeft : partner.ancestryRight;
+      distance = Math.max(distance, side.ancestryEdge + inner);
+      side.ancestryEdge = distance + outer + slot;
+    }
+    const x = side.direction * distance;
+    if (partner) partner.x = x;
+    place(children, x - halfSpan);
+    side.familyEdge = distance + halfSpan + slot;
   }
-  siblings.forEach((node, index) => { node.x = right + index * slot; });
 }
 
 function placeDescendantFamilies(groups, slot) {
@@ -656,21 +677,15 @@ function drawVerticalChart(stage, paths, graph, columns, childGroups, inset, car
   for (const row of rows) {
     for (const node of row) node.height = node.card.offsetHeight + node.actions.offsetHeight;
   }
+  measureVerticalAncestry(levels, slot);
   placeVerticalFamilies(root, partners, siblings, childGroups, slot);
   const descendantRows = placeDescendantFamilies(childGroups, slot);
-  for (let level = 0; level + 1 < levels.length; level++) {
-    const next = levels[level + 1];
-    const families = [...levels[level]].sort((a, b) => a.x - b.x);
-    const ordered = families.flatMap((node) => {
+  for (const level of levels) {
+    for (const node of level) {
       node.parents.forEach((parent, index) => {
-        parent.y = node.x + (index - (node.parents.length - 1) / 2) * slot;
-        parent.heightOnRow = cardWidth;
+        parent.x = node.x + (index === 0 ? -node.parentSpread : node.parentSpread);
       });
-      return node.parents;
-    });
-    // The same spacing solver also packs cards across each generation row.
-    packColumn(ordered, rowGap * 2, (node) => node.heightOnRow);
-    for (const node of next) node.x = node.y;
+    }
   }
   const deepGroups = descendantRows.flatMap((row) => row.map(({ group }) => group));
   for (const group of [...childGroups, ...deepGroups]) {
@@ -754,21 +769,27 @@ function drawVerticalChart(stage, paths, graph, columns, childGroups, inset, car
     for (const node of nodes) {
       if (!node.parents.length) continue;
       const middle = rowEnd[level + 1] + (rowTop[level] - rowEnd[level + 1]) / 2;
-      const joint = node.parents.reduce((sum, parent) => sum + center(parent), 0) / node.parents.length;
       const child = { x: center(node), y: node.y };
-      if (grouped && node.parents.length > 1) {
-        const joined = [node, ...(node === root ? graph.fullSiblings : [])];
-        joined.forEach((member) => verticalLine(paths, { x: center(member), y: member.y },
-          { x: joint, y: middle }, middle, node.branch));
-        node.parents.forEach((parent) => verticalLine(paths, { x: joint, y: middle },
-          { x: center(parent), y: parent.y + parent.height }, middle, parent.branch));
-      } else {
-        node.parents.forEach((parent) => verticalLine(paths, child,
-          { x: center(parent), y: parent.y + parent.height }, middle, parent.branch));
+      const [first, second] = node.parents;
+      if (!second) {
+        verticalLine(paths, child, { x: center(first), y: first.y + first.height }, middle, first.branch);
+        continue;
+      }
+      const joint = { x: child.x, y: middle };
+      verticalLine(paths, child, joint, middle, node.branch);
+      for (const parent of node.parents) {
+        verticalLine(paths, joint, { x: center(parent), y: parent.y + parent.height }, middle, parent.branch);
+      }
+      if (grouped && node === root && graph.fullSiblings.length) {
+        const lane = node.y - rowGap / 2;
+        const last = graph.fullSiblings.at(-1);
+        const bus = verticalLine(paths, { x: child.x, y: lane }, { x: center(last), y: last.y }, lane, node.branch);
+        const arms = graph.fullSiblings.slice(0, -1).map((sibling) => `M ${center(sibling)} ${lane} V ${sibling.y}`);
+        bus.setAttribute("d", [bus.getAttribute("d"), ...arms].join(" "));
       }
       const label = labels.get(node);
       if (label) {
-        label.style.left = `${joint}px`;
+        label.style.left = `${joint.x}px`;
         label.style.top = `${middle}px`;
       }
     }
@@ -837,13 +858,13 @@ function drawVerticalChart(stage, paths, graph, columns, childGroups, inset, car
   return { width: Math.max(right - left, cardWidth + inset * 2), height, center };
 }
 
-function packColumn(column, gap, size = (node) => node.height) {
+function packColumn(column, gap) {
   // Subtract each card's minimum offset, then merge adjacent runs whose
   // ideal positions would overlap. This keeps the parent order intact.
   let offset = 0;
   const runs = [];
   for (const [index, node] of column.entries()) {
-    if (index) offset += (size(column[index - 1]) + size(node)) / 2 + gap;
+    if (index) offset += (column[index - 1].height + node.height) / 2 + gap;
     node.offset = offset;
     runs.push({ start: index, count: 1, sum: node.y - offset });
     while (runs.length > 1) {
