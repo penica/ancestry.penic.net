@@ -16,15 +16,18 @@
       <a href="{{ tree.url('/people') }}">People directory</a>
       {% else %}
       <a href="{{ tree.url('/pedigree') }}">Pedigree</a>
-      {% if not reader_session %}<a href="/openapi.json">API schema</a>{% endif %}
+      {% if anniversary_page %}<a href="{{ tree.url('/people') }}">People directory</a>
+      {% elif not reader_session %}<a href="/openapi.json">API schema</a>{% endif %}
       {% endif %}
+      <a href="{{ tree.url('/on-this-day') }}"{% if anniversary_page %} aria-current="page"{% endif %}>On this day</a>
       {% if my_person %}<a class="reader-my-person" href="{{ tree.url('/pedigree?person=' ~ my_person) }}">My person</a>{% endif %}
       {% if local_system %}<a href="/system">System settings</a>{% endif %}
     </div>
     {% endif %}
     {% include "reader-session.html" %}
     {% if trees|length > 1 %}
-    <form class="reader-tree-switch" action="{{ '/pedigree' if pedigree_header else '/people' }}" method="get">
+    <form class="reader-tree-switch" action="{{ '/on-this-day' if anniversary_page else '/pedigree' if pedigree_header else '/people' }}" method="get">
+      {% if anniversary_page %}<input type="hidden" name="date" value="{{ selected_date }}">{% endif %}
       <label for="tree-select">Tree</label>
       <select id="tree-select" name="tree">
         {% for choice in trees %}

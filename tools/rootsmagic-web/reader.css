@@ -53,6 +53,16 @@ button:active { background: var(--wash); color: var(--ink); }
 .rows small { text-align: end; font-weight: normal; }
 .rows a:hover, .rows a:active { background: var(--wash); }
 .rows a:hover span { text-decoration: underline; }
+.anniversary-date-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.anniversary-date-controls input { flex: 0 1 auto; max-inline-size: 100%; }
+.anniversary-date-controls a { padding-inline: var(--s2); }
+.anniversary-group + .anniversary-group { margin-block-start: var(--s4); }
+.anniversary-group h3, .anniversary-caption { margin-block-end: var(--s2); }
+.anniversary-person, .anniversary-meta { display: grid; }
+.anniversary-name { font-weight: 650; }
+.anniversary-fact { color: var(--muted); font-size: var(--small); font-weight: normal; }
+.anniversary-meta { flex: none; }
+.anniversary-rows a:hover .anniversary-fact, .anniversary-rows a:hover .anniversary-meta span { text-decoration: none; }
 .pager { display: flex; justify-content: space-between; gap: var(--s4); margin-block-start: var(--s4); }
 .event { padding-block: var(--s3); border-block-start: 1px solid var(--rule); }
 .event p { margin-block-start: var(--s1); }

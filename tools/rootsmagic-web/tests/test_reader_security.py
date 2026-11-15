@@ -7,6 +7,7 @@ import sqlite3
 import sys
 import unittest
 from contextlib import closing
+from datetime import date
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -24,6 +25,7 @@ from pedigree_research import relationship_paths
 from pedigree_store import pedigree, pedigree_details
 from reader_access import SESSION_COOKIE, ReaderAccess
 from reader_accounts import Accounts, AccountsError, LoginChallenge, LoginThrottled, Role
+from reader_anniversaries import calendar_day, read_anniversaries
 from reader_api_keys import ApiKeys
 from reader_comments import CommentDraft, Comments, ReaderActor
 from reader_external import ExternalTree
@@ -234,6 +236,44 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(chart.root.person, card)
         self.assertEqual(tuple(node.person.id for node in chart.root.parents), family.parents)
         self.assertEqual(tuple(node.id for node in chart.children), (24, 26))
+
+    def test_anniversaries_prefer_birth_days_and_preserve_external_permissions(self) -> None:
+        events = (
+            (40, 1, 10, "D.+20000101..+00000000..", 1, 0),
+            (41, 3, 10, "D.+20000101..+00000000..", 1, 0),
+            (42, 1, 12, "D.+18000101..+00000000..", 1, 0),
+            (43, 7, 20, "D.+18000102..+00000000..", 1, 0),
+            (44, 1, 21, "D.+17800000..+00000000..", 1, 0),
+            (45, 3, 21, "D.+17800101..+00000000..", 1, 0),
+            (46, 1, 22, "D.+17900101..+00000000..", 1, 1),
+            (47, 1, 24, "D.+18020101..+00000000..", 0, 0),
+            (48, 1, 24, "D.+18020102..+00000000..", 1, 0),
+        )
+        with closing(sqlite3.connect(self.tree.path)) as db, db:
+            db.executemany(
+                """INSERT INTO EventTable
+                   (EventID, EventType, OwnerType, OwnerID, Date, IsPrimary, IsPrivate, PlaceID)
+                   VALUES (?, ?, 0, ?, ?, ?, ?, 1)""",
+                events,
+            )
+        selected = date(2026, 1, 1)
+        family = read_anniversaries(self.tree.database, selected)
+        births = {person.person_id: person for person in family.births}
+        self.assertEqual(set(births), {10, 12, 20})
+        self.assertEqual((births[10].status, births[10].age), ("Living", 26))
+        self.assertEqual((births[20].status, births[20].death_year), ("Deceased", 1888))
+        self.assertEqual([(person.person_id, person.fact) for person in family.baptisms], [(21, "Christened")])
+        self.assertEqual(read_anniversaries(self.tree.database, date(2026, 1, 2)).baptisms, ())
+        external = read_anniversaries(ExternalTree(self.tree.path), selected)
+        self.assertEqual([person.person_id for person in external.births], [20])
+        self.assertEqual([person.person_id for person in external.baptisms], [21])
+
+    def test_calendar_day_excludes_approximate_dates_and_accepts_leap_day(self) -> None:
+        self.assertEqual(calendar_day("D.+00000229..+00000000.."), (None, 2, 29))
+        self.assertEqual(calendar_day("T29 February 2000"), (2000, 2, 29))
+        self.assertIsNone(calendar_day("D.+19000229..+00000000.."))
+        self.assertIsNone(calendar_day("D.+20000229.A+00000000.."))
+        self.assertIsNone(calendar_day("D-+20000228..+20000229.."))
 
     def test_hosted_media_fails_closed_without_map(self) -> None:
         from pedigree_evidence import StoredMedia, recorded_path

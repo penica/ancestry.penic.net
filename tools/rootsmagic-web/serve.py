@@ -21,12 +21,14 @@ import subprocess
 import sys
 from collections import Counter
 from contextlib import contextmanager
+from datetime import date, datetime
 from hashlib import sha256
 from pathlib import Path
 from secrets import compare_digest, token_urlsafe
 from threading import Lock
 from typing import TYPE_CHECKING, Annotated, Final, Literal
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -79,6 +81,7 @@ from reader_access import (
     read_json,
     require_family_tree,
 )
+from reader_anniversaries import read_anniversaries
 from reader_account_routes import account_router
 from reader_api_key_routes import integration_router
 from reader_chart_links import (
@@ -1093,6 +1096,51 @@ def landing_page(request: Request) -> RedirectResponse:
         [(key, value) for key, value in query.multi_items() if key in fields]
     )
     return RedirectResponse(f"{destination}?{params}" if params else destination)
+
+
+@app.get("/on-this-day", response_class=HTMLResponse, include_in_schema=False)
+def on_this_day(
+    request: Request,
+    tree: SelectedTree,
+    day: Annotated[str, Query(alias="date", max_length=10)] = "",
+) -> HTMLResponse:
+    """Render birth and baptism anniversaries within the current tree grant."""
+    selected = datetime.now(ZoneInfo("Europe/Ljubljana")).date()
+    date_error = ""
+    if day:
+        try:
+            candidate = date.fromisoformat(day)
+        except ValueError:
+            date_error = "Choose a date from the calendar."
+        else:
+            if candidate.isoformat() == day:
+                selected = candidate
+            else:
+                date_error = "Choose a date from the calendar."
+    anniversaries = read_anniversaries(tree.database, selected)
+    statuses = ["Deceased"] if tree.external else ["Living", "Deceased"]
+    if any(person.status == "Status unknown" for person in anniversaries.births):
+        statuses.append("Status unknown")
+    return HTMLResponse(
+        templates.get_template("reader-anniversaries.html").render(
+            anniversary_page=True,
+            anniversaries=anniversaries,
+            birth_groups=[
+                (
+                    status,
+                    tuple(person for person in anniversaries.births if person.status == status),
+                )
+                for status in statuses
+            ],
+            selected_date=selected.isoformat(),
+            date_error=date_error,
+            tree=tree,
+            trees=reader_access.visible_trees(request),
+            reader_session=current_session(request),
+            local_system=reader_access.local_browser(request),
+        ),
+        status_code=400 if date_error else 200,
+    )
 
 
 @app.get("/people", response_class=HTMLResponse, include_in_schema=False)

@@ -6,6 +6,8 @@ Extend the visual language of the Penič family archive: warm paper, forest gree
 
 Layout: directory and profile - keep names and record prose legible -> center (https://raw.githubusercontent.com/changeroa/StyleGallery/main/patterns/centering/center.md); scroll owner: document; anti-patterns: fixed reading widths and nested scroll containers.
 
+Layout: On this day - use the directory reading width, with a wrapping date form above stacked event groups. The document owns scrolling.
+
 Layout: reader masthead - keep the brand and tree context together, with the current view's navigation and the Account disclosure alongside. Let the tree picker wrap onto its own row when space is tight. The masthead stays above the pedigree scroll area.
 
 Widths: 64rem shell, 46rem reading measure; spacing 4, 8, 12, 16, 24, 32, 48px. System body and Georgia display, 14/16/22/36/48px, with 15/17px text on phones. Fine neutral rules and 4px corners. Light canvas #f6f5f0, surface #fffefb, ink #272f2b, muted #56635a, rule #d8ddd4, control #79877b, accent #294f40 and wash #e7eee8. Dark canvas #1a211d, surface #222b25, ink #eef2ec, muted #bbc8bd, rule #3c4940, control #819385, accent #b3d5bf and wash #2d3c32.
@@ -13,6 +15,7 @@ Widths: 64rem shell, 46rem reading measure; spacing 4, 8, 12, 16, 24, 32, 48px. 
 ## 5. Screens and primitives
 
 - Directory: search first, then result names and RootsMagic IDs. Primary action: Search. Empty state offers a clear search. Pagination preserves the query.
+- On this day: choose a date, then browse births by life status and a separate list of baptisms or christenings for people without a known birth day. Each row opens the person's pedigree in the selected tree. The native date form works with the keyboard and without JavaScript.
 - Person record: name and RootsMagic ID, family links, then events with citations and notes. Primary navigation is opening a relative. Source details use native disclosure with a keyboard-visible focus ring. The directory link is always available.
 - The pedigree full record renders image previews in its initial HTML. Keep fact and citation images with their events. Put remaining person, name, or family images at the end and leave out media already shown with a fact. Use tree-scoped media IDs for same-origin images. Identify registered images that are unavailable locally without loading an image for them.
 - The full record and the details drawer share a native image preview dialog. Opening an image keeps the current page and chart in place. Closing the preview returns focus to its link, including when the details drawer is still open.
@@ -87,6 +90,7 @@ Layout: API key settings - reuse the system navigation and administrator form an
 ## Browser checks before shipping
 
 - Test a desktop and a phone width in light and dark mode. Verify the chart is the scrolling region, generation controls fit, and the fixed panel header leaves room to scroll the details.
+- Open **On this day** from the masthead and from **Chart tools** at phone width. Check the date picker, Today, tree switching, pedigree links, empty groups and the External Reader view.
 - Open #406 in both default files and verify the directory, chart, record, and links agree within each tree. Check that **Reset view** stays in that tree.
 - Check that **Full screen** grows the chart, **Refresh** reloads it in place, Escape exits full screen, **Fit to view** shows all cards, and zoom keeps the chart centered near the same point. On wide screens, full-screen **Refresh** sits beside **View details**. After opening and closing branches and changing the zoom, re-root and use **Previous person** to restore the view.
 - Open Anton Mihelčič (#290) in Horizontal with **Family groups** on. Check that Michael Mihelčič (#742) and Maria Straschar (#743) have separate brackets connecting them to their own parents, and that the marriage labels are still readable.

@@ -69,6 +69,12 @@ Open the [live pedigree](http://127.0.0.1:8765/) or the [people directory](http:
 - Save in RootsMagic, then open **Publish** in the Mac reader. Review the selected snapshot, added, updated, and removed records, and new, updated, or unavailable media. Resolve unavailable media and reused person numbers, then open a fresh preview. **Preview restore** shows the last publication’s tree and NAS media changes before restoring them together. **Publish to VM** sends the reviewed snapshot and shows what the VM accepted. Click **Refresh** on the VM reader after publication. [Publishing and media guide](deploy/README.md#publish-a-tree-update)
 - Save your changes in RootsMagic first, then click **Refresh**. The chart keeps your open and collapsed branches. Refreshing in the details panel reloads the chart and the panel. If a refresh fails, use **Refresh** or **Try again**. The last successfully loaded data stays available while you retry.
 
+## On this day
+
+Open **On this day** from the reader header, or from **Chart tools** on a phone. It opens on today's date in the Ljubljana time zone. Use **Show date** to look up another day or **Today** to return. Changing trees keeps the selected date.
+
+**Born on this day** matches the recorded month and day and separates living and deceased people. The displayed birthday age uses the selected year. **Baptized on this day** also includes christenings and appears separately for people whose birth day is unknown. Select any row to open that person's pedigree. External Readers see only the deceased people and facts already visible to them in that tree.
+
 ## Database and troubleshooting
 
 - Before you save reader defaults, the reader lists the working `Vogrinc-Urek Penič-Hribar.rmtree` in the neighboring `Penic` project and `penic-vogrinc.rmtree` in the Ancestry workspace. Links without a tree use the configured default when it is available to the signed-in account.

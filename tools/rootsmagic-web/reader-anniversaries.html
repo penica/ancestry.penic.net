@@ -1,0 +1,65 @@
+{% macro people_rows(people, baptism=false) -%}
+<ul class="rows anniversary-rows">
+  {% for person in people %}
+  <li>
+    <a href="{{ tree.url('/pedigree?person=' ~ person.person_id) }}">
+      <span class="anniversary-person">
+        <span class="anniversary-name">{{ person.name }}</span>
+        <span class="anniversary-fact">{{ person.fact }} {{ person.date_label }}{% if person.place %} · {{ person.place }}{% endif %}</span>
+      </span>
+      <small class="anniversary-meta">
+        <span>#{{ person.person_id }}</span>
+        {% if baptism %}<span>{{ person.status }}</span>
+        {% elif person.age is not none %}<span>Turns {{ person.age }}</span>
+        {% elif person.death_year %}<span>Died {{ person.death_year }}</span>{% endif %}
+      </small>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{%- endmacro %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>On this day · RootsMagic Reader</title>
+  <link rel="stylesheet" href="{{ asset('reader.css') }}">
+  <link rel="stylesheet" href="{{ asset('reader-accounts.css') }}">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  {% include "reader-masthead.html" %}
+  <main class="shell reading" id="main-content" tabindex="-1">
+    <h1>On this day</h1>
+    <form action="/on-this-day" method="get">
+      <input type="hidden" name="tree" value="{{ tree.slug }}">
+      <label for="anniversary-date">Date</label>
+      <div class="anniversary-date-controls">
+        <input id="anniversary-date" name="date" type="date" value="{{ selected_date }}" max="9999-12-31" required{% if date_error %} aria-invalid="true" aria-describedby="anniversary-date-error"{% endif %}>
+        <button type="submit">Show date</button>
+        <a class="back" href="{{ tree.url('/on-this-day') }}">Today</a>
+      </div>
+      {% if date_error %}<p id="anniversary-date-error" role="alert">{{ date_error }}</p>{% endif %}
+    </form>
+
+    <section aria-labelledby="births-heading">
+      <h2 id="births-heading">Born on this day</h2>
+      {% for status, people in birth_groups %}
+      <div class="anniversary-group">
+        <h3>{{ status }}</h3>
+        {% if people %}{{ people_rows(people) }}
+        {% else %}<p class="muted">No matching births.</p>{% endif %}
+      </div>
+      {% endfor %}
+    </section>
+
+    <section aria-labelledby="baptisms-heading">
+      <h2 id="baptisms-heading">Baptized on this day</h2>
+      <p class="muted anniversary-caption">Baptisms and christenings for people whose birth month and day are unknown.</p>
+      {% if anniversaries.baptisms %}{{ people_rows(anniversaries.baptisms, baptism=true) }}
+      {% else %}<p class="muted">No matching baptisms or christenings.</p>{% endif %}
+    </section>
+  </main>
+</body>
+</html>
