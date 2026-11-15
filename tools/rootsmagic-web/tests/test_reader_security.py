@@ -316,9 +316,11 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
         from dataclasses import replace
 
         body = report_body("https://reader.test", replace(self.tree, external=True), date(2026, 1, 1))
-        self.assertIn("https://reader.test/pedigree?person=20&tree=fixture", body)
-        self.assertNotIn("Secret", body)
-        self.assertNotIn("person=10", body)
+        self.assertIn("https://reader.test/pedigree?person=20&tree=fixture", body.text)
+        self.assertIn('href="https://reader.test/pedigree?person=20&amp;tree=fixture"', body.html)
+        for part in (body.text, body.html):
+            self.assertNotIn("Secret", part)
+            self.assertNotIn("person=10", part)
 
     def test_unauthenticated_lan_relay_is_configured_for_reports(self) -> None:
         owner = self.accounts.bootstrap_admin("owner", PASSWORD)

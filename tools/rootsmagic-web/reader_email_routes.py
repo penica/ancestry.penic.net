@@ -13,6 +13,7 @@ from starlette.concurrency import run_in_threadpool
 from reader_access import FORM_COOKIE, SESSION_COOKIE, form_token, sign_in_form
 from reader_accounts import AccountsError, EmailPurpose, LoginThrottled
 from reader_audit import audit
+from reader_email_content import action_email
 from reader_mail import Mail, MailError
 from reader_mfa_routes import security_form
 
@@ -56,8 +57,13 @@ def email_router(access: ReaderAccess, templates: Environment) -> APIRouter:
             Mail(access.store()).send_saved(
                 recipient,
                 f"RootsMagic Reader · {description}",
-                f"{description} using this one-time link. It expires in 30 minutes.\n\n"
-                f"{url}\n\nIf you did not request this, you can ignore this email.",
+                action_email(
+                    description,
+                    f"{description} using the one-time link below.",
+                    description,
+                    url,
+                    "The link expires in 30 minutes. If you did not request this, you can ignore this email.",
+                ),
                 password_reset=purpose == "reset",
             )
         except MailError:

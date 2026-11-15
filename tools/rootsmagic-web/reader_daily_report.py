@@ -19,6 +19,7 @@ from reader_accounts import (
     _required_token_hash,
 )
 from reader_anniversaries import Anniversary, read_anniversaries
+from reader_email_content import EMAIL_TEMPLATES, EmailBody
 from reader_mail import Mail, MailError
 from reader_settings import DailyReportSettings, settings_path, site_settings
 from store import MONTHS
@@ -45,6 +46,13 @@ class Recipient:
     email: str
     tree_slug: str
     role: Role
+
+
+@dataclass(frozen=True, slots=True)
+class ReportEntry:
+    name: str
+    details: str
+    url: str
 
 
 def scheduled_day(schedule: DailyReportSettings, now: datetime) -> date | None:
@@ -110,49 +118,69 @@ def claim(accounts: Accounts, recipient: Recipient, day: date) -> bool:
         return result.rowcount == 1
 
 
-def report_body(origin: str, tree: Tree, day: date) -> str:
+def report_body(origin: str, tree: Tree, day: date) -> EmailBody:
     """Format the same authorized anniversary records used by the web page."""
     report = read_anniversaries(tree.database, day)
-    date_label = f"{day.day} {MONTHS[day.month - 1]} {day.year}"
-    lines = [f"On this day · {date_label}", tree.name, "", "Born on this day"]
+    title = f"On this day · {day.day} {MONTHS[day.month - 1]} {day.year}"
 
-    def format_event(person: Anniversary, extra: str) -> str:
+    def entry(person: Anniversary, *, baptism: bool = False) -> ReportEntry:
         place = f" · {person.place}" if person.place else ""
+        extra = ""
+        if baptism:
+            extra = f" · {person.status}"
+        elif person.age is not None:
+            extra = f" · Turns {person.age}"
+        elif person.death_year:
+            extra = f" · Died {person.death_year}"
         details = f"{person.fact} {person.date_label}{place}{extra}"
         profile = tree.url(f"/pedigree?person={person.person_id}")
-        return f"{person.name} (#{person.person_id})\n{details}\n{origin}{profile}"
+        return ReportEntry(
+            f"{person.name} (#{person.person_id})", details, origin + profile
+        )
 
     groups = (
         ("Deceased",) if tree.external else ("Living", "Deceased", "Status unknown")
     )
-    for status in groups:
-        people = [person for person in report.births if person.status == status]
-        if not people and status == "Status unknown":
-            continue
+    births = [
+        (status, entries)
+        for status in groups
+        if (
+            entries := tuple(
+                entry(person) for person in report.births if person.status == status
+            )
+        )
+    ]
+    baptisms = tuple(entry(person, baptism=True) for person in report.baptisms)
+    overview_url = origin + tree.url(f"/on-this-day?date={day.isoformat()}")
+    preferences_url = f"{origin}/account/daily-report"
+    lines = [title, tree.name, "", "Born on this day"]
+    if not births:
+        lines.append("No matching births.")
+    for status, people in births:
         lines.extend(("", status))
-        if not people:
-            lines.append("No matching births.")
         for person in people:
-            extra = ""
-            if person.age is not None:
-                extra = f" · Turns {person.age}"
-            elif person.death_year:
-                extra = f" · Died {person.death_year}"
-            lines.append(format_event(person, extra))
+            lines.extend((person.name, person.details, person.url, ""))
     lines.extend(("", "Baptized on this day"))
-    for person in report.baptisms:
-        lines.append(format_event(person, f" · {person.status}"))
-    if not report.baptisms:
+    for person in baptisms:
+        lines.extend((person.name, person.details, person.url, ""))
+    if not baptisms:
         lines.append("No matching baptisms or christenings.")
-    overview = tree.url(f"/on-this-day?date={day.isoformat()}")
     lines.extend(
         (
             "",
-            f"Open On this day: {origin}{overview}",
-            f"Manage or stop these emails: {origin}/account/daily-report",
+            f"View this day in RootsMagic Reader: {overview_url}",
+            f"Manage daily report emails: {preferences_url}",
         )
     )
-    return "\n".join(lines)
+    html = EMAIL_TEMPLATES.get_template("reader-mail-report.html").render(
+        title=title,
+        tree_name=tree.name,
+        births=births,
+        baptisms=baptisms,
+        overview_url=overview_url,
+        preferences_url=preferences_url,
+    )
+    return EmailBody("\n".join(lines), html)
 
 
 def run_daily_report(access: ReaderAccess, now: datetime) -> int:
@@ -182,7 +210,7 @@ def run_daily_report(access: ReaderAccess, now: datetime) -> int:
     trees = {
         tree.slug: tree for tree in available_trees(settings) if tree.path.is_file()
     }
-    reports: dict[Tree, str] = {}
+    reports: dict[Tree, EmailBody] = {}
     sent = 0
     subject = f"RootsMagic Reader · On this day · {day.day} {MONTHS[day.month - 1]} {day.year}"
     for recipient in recipients:

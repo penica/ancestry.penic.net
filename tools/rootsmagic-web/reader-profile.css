@@ -36,6 +36,9 @@
 .profile-value-muted { color: var(--muted); }
 .profile-form { max-inline-size: 29rem; }
 .profile-form-actions { gap: var(--s2) var(--s4); }
+.profile-verification { margin-block-start: var(--s4); }
+.profile-verification .account-message { margin-block: 0; }
+.profile-verification-action { margin-block-start: var(--s2); }
 
 @media (min-width: 36rem) {
   .profile-panel { padding: var(--s6); }

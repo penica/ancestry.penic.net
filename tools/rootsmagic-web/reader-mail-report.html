@@ -1,0 +1,26 @@
+{% extends "reader-mail-layout.html" %}
+{% macro entries(people) -%}
+{% for person in people %}
+<p style="margin:0;padding:10px 0;border-top:1px solid #d8ddd4">
+  <a href="{{ person.url }}" style="color:#294f40;font-weight:bold">{{ person.name }}</a><br>
+  <span>{{ person.details }}</span>
+</p>
+{% endfor %}
+{%- endmacro %}
+{% block message %}
+<p style="margin:0 0 20px;color:#56635a">{{ tree_name }}</p>
+<h2 style="margin:0 0 8px;font:normal 22px Georgia,serif">Born on this day</h2>
+{% for status, people in births %}
+  <h3 style="margin:12px 0 4px;font-size:16px">{{ status }}</h3>
+  {{ entries(people) }}
+{% else %}
+  <p style="margin:0;color:#56635a">No matching births.</p>
+{% endfor %}
+<h2 style="margin:20px 0 8px;font:normal 22px Georgia,serif">Baptized on this day</h2>
+{% if baptisms %}{{ entries(baptisms) }}
+{% else %}<p style="margin:0;color:#56635a">No matching baptisms or christenings.</p>{% endif %}
+<p style="margin:22px 0 0;padding-top:14px;border-top:1px solid #d8ddd4">
+  <a href="{{ overview_url }}" style="color:#294f40;font-weight:bold">View this day in RootsMagic Reader</a><br>
+  <a href="{{ preferences_url }}" style="color:#294f40">Manage daily report emails</a>
+</p>
+{% endblock %}

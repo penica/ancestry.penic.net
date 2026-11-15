@@ -55,6 +55,8 @@ Layout: pedigree - fill the available screen below wrapping navigation -> scroll
 
 Layout: account settings - centered reading width with one row per setting, each row opening a focused form. Use the account header, existing paper and forest colors, and a visible keyboard focus ring. Keep each row tappable at phone width and allow long usernames and email addresses to wrap. **My person** searches within the chosen tree and identifies each match by RootsMagic ID and available years.
 
+- Edit email and verification use the same form width. Keep the verification status within its panel and ask for the password when the verification action is opened. Daily reports and account actions use labeled links in HTML email and full URLs in the plain-text alternative.
+
 ## Person details panel
 
 Layout: selected-person details - preserve chart position beneath a native modal drawer -> scroll-body-shell (https://raw.githubusercontent.com/changeroa/StyleGallery/main/patterns/viewport-shell/scroll-body-shell.md); scroll owner: `.details-scroll`; fixed region: dialog header; height: 100dvh. Panel width is 36rem on desktop and full screen below 43rem.

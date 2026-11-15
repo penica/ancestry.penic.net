@@ -15,6 +15,7 @@ from cryptography.fernet import InvalidToken
 from pydantic import Field, ValidationError
 
 from reader_accounts import EMAIL_LABEL, AccountsError, _email, _require_admin
+from reader_email_content import EmailBody
 from reader_mfa import MFAError, load_cipher
 from store import Record
 
@@ -207,7 +208,7 @@ class Mail:
         actor: AccountID,
         recipient: str,
         subject: str,
-        text: str,
+        text: str | EmailBody,
         *,
         draft: SMTPSettings | None = None,
         password: str = "",
@@ -244,7 +245,7 @@ class Mail:
             return False
 
     def send_saved(
-        self, recipient: str, subject: str, text: str, *, password_reset: bool = False
+        self, recipient: str, subject: str, text: str | EmailBody, *, password_reset: bool = False
     ) -> None:
         """Use the administrator's mail relay for reader-generated messages."""
         with self.accounts._connect() as db:
@@ -260,7 +261,7 @@ class Mail:
         self,
         recipient: str,
         subject: str,
-        text: str,
+        text: str | EmailBody,
         row: sqlite3.Row | None,
         draft: SMTPSettings | None,
         password: str,
@@ -280,7 +281,12 @@ class Mail:
         message["From"] = settings.sender
         message["To"] = recipient
         message["Subject"] = subject
-        message.set_content(text)
+        match text:
+            case EmailBody(plain_text, html):
+                message.set_content(plain_text)
+                message.add_alternative(html, subtype="html")
+            case str():
+                message.set_content(text)
         if settings.security == "none" and plain is not None:
             raise MailError("Choose STARTTLS or TLS before sending an SMTP password.")
         if not SMTP_WORK.acquire(blocking=False):

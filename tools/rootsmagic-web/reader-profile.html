@@ -50,19 +50,27 @@
   </div>
 </form>
 {% if field == 'email' and current_user.email %}
-<section aria-labelledby="verify-email-heading" class="profile-panel">
+<section aria-labelledby="verify-email-heading" class="profile-panel profile-form profile-verification">
   <h2 id="verify-email-heading">Email verification</h2>
   {% if current_user.email_verified %}
-    <p>This email address is verified.</p>
+    <p><strong>{{ current_user.email }}</strong> is verified.</p>
   {% elif mail_verification_available %}
-    <form class="account-form" action="/account/email/verify" method="post">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <div class="account-field">
-        <label for="verify-email-password">Current password</label>
-        <input id="verify-email-password" name="current_password" type="password" autocomplete="current-password" maxlength="128" required>
-      </div>
-      <button type="submit">Send verification email</button>
-    </form>
+    {% if verification_sent %}
+      <p class="account-message" role="status">Check your inbox at <strong>{{ current_user.email }}</strong> for your verification link.</p>
+    {% else %}
+      <p class="muted">Verify your saved address to receive the daily report.</p>
+    {% endif %}
+    <details class="profile-verification-action">
+      <summary>{{ 'Send another verification email' if verification_sent else 'Verify email address' }}</summary>
+      <form class="account-form" action="/account/email/verify" method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="account-field">
+          <label for="verify-email-password">Current password</label>
+          <input id="verify-email-password" name="current_password" type="password" autocomplete="current-password" maxlength="128" required>
+        </div>
+        <button type="submit">Send verification email</button>
+      </form>
+    </details>
   {% else %}
     <p>Email verification is unavailable until an administrator configures the email server.</p>
   {% endif %}

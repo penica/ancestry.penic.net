@@ -34,6 +34,7 @@ from reader_accounts import (
 )
 from reader_audit import audit
 from reader_daily_report_routes import daily_report_router
+from reader_email_content import action_email
 from reader_email_routes import email_router
 from reader_mail import Mail, mail_address
 from reader_mfa_routes import mfa_router, start_mfa_login
@@ -150,6 +151,7 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
         notice: str = "",
         attempted_value: str | None = None,
         status: int = 200,
+        verification_sent: bool = False,
     ) -> HTMLResponse:
         store = access.store()
         session = require_session(request)
@@ -183,6 +185,7 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
                 person_available=person_available,
                 mfa_available=store.mfa_available,
                 mail_verification_available=Mail(store).configured() if field == "email" else False,
+                verification_sent=verification_sent,
             ),
             status_code=status,
         )
@@ -199,8 +202,7 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
     def edit_profile(request: Request, field: ProfileField, updated: str = "") -> HTMLResponse:
         return profile_page(
             request, field=field,
-            notice="Check your inbox for your verification link."
-            if field == "email" and updated == "verification-sent" else "",
+            verification_sent=field == "email" and updated == "verification-sent",
         )
 
     @router.post("/account/{field}")
@@ -419,7 +421,13 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
                     session.account.id,
                     recipient,
                     "Your RootsMagic Reader invitation",
-                    f"You have been invited to RootsMagic Reader. Open this one-time link to set your password:\n\n{url}\n\nThe link expires in seven days.",
+                    action_email(
+                        "Your invitation",
+                        "You have been invited to RootsMagic Reader. Set a password to open the tree.",
+                        "Accept invitation",
+                        url,
+                        "This one-time link expires in seven days.",
+                    ),
                 )
             except AccountsError as error:
                 audit("invitation_mail", "failed", actor=session.account.id)
