@@ -24,13 +24,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from pedigree_research import relationship_paths
 from pedigree_store import pedigree, pedigree_details
 from reader_access import SESSION_COOKIE, ReaderAccess
-from reader_accounts import Accounts, AccountsError, LoginChallenge, LoginThrottled, Role
+from reader_accounts import (
+    Accounts, AccountsError, LoginChallenge, LoginThrottled, Role, _required_token_hash,
+)
 from reader_anniversaries import calendar_day, read_anniversaries
 from reader_api_keys import ApiKeys
 from reader_comments import CommentDraft, Comments, ReaderActor
 from reader_daily_report import Recipient, claim, report_body, save_subscription, scheduled_day
 from reader_external import ExternalTree
 from reader_mail import Mail, SMTPSettings
+from reader_passkeys import PasskeyError, Passkeys
 from reader_settings import DailyReportSettings
 from reader_tree_state import TreeState
 from store import Citation, PersonID, connect, pedigree_search
@@ -68,6 +71,20 @@ class ReaderTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(LoginThrottled):
             self.accounts.login("owner", PASSWORD, "192.0.2.1")
         self.assertIsNotNone(self.accounts.login("owner", PASSWORD, "192.0.2.2"))
+
+    def test_passkey_tabs_have_independent_one_time_challenges(self) -> None:
+        passkeys = Passkeys(self.accounts, "https://reader.example.test")
+        browser = "a" * 43
+        binding = _required_token_hash(browser)
+        first = passkeys.authentication(browser, None)
+        second = passkeys.authentication(browser, None)
+        with self.assertRaises(PasskeyError):
+            passkeys.take_challenge("login", first.token, _required_token_hash("b" * 43))
+        challenge = passkeys.take_challenge("login", first.token, binding)
+        other = passkeys.take_challenge("login", second.token, binding)
+        self.assertNotEqual(challenge["challenge"], other["challenge"])
+        with self.assertRaises(PasskeyError):
+            passkeys.take_challenge("login", first.token, binding)
 
     def test_authenticator_and_recovery_codes_reject_replay(self) -> None:
         key = self.root / "mfa.key"

@@ -11,7 +11,8 @@
 .system-status dt { font-weight: 600; }
 .system-status dd { margin: 0 0 var(--s3); overflow-wrap: anywhere; }
 .account-main [hidden] { display: none !important; }
-.passkey-sign-in { margin-block-start: var(--s4); padding-block-start: var(--s4); border-block-start: 1px solid var(--rule); }
+.passkey-sign-in { margin-block: var(--s4); padding-block-start: var(--s4); border-block-start: 1px solid var(--rule); }
+.passkey-sign-in > a { display: inline-flex; align-items: center; min-block-size: var(--target); overflow-wrap: anywhere; }
 .passkey-sign-in .account-message, #passkey-status { margin-block: var(--s3) 0; }
 .account-nav { gap: var(--s2) var(--s4); }
 .account-nav form { padding-block: var(--s1); }

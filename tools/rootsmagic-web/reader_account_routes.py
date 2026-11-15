@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Annotated, Final
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -85,6 +85,11 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
         status: int = 200,
     ) -> HTMLResponse:
         csrf = form_token(request)
+        is_login = name == "reader-login.html"
+        show_passkeys = passkeys_available(access, request)
+        public_login = ""
+        if is_login and access.origin and not show_passkeys:
+            public_login = f"{access.origin}/login?{urlencode({'next': next_path})}"
         response = HTMLResponse(
             templates.get_template(name).render(
                 username=username,
@@ -92,9 +97,10 @@ def account_router(access: ReaderAccess, templates: Environment) -> APIRouter:
                 token=token,
                 error=error,
                 csrf_token=csrf,
-                passkeys_available=passkeys_available(access, request),
-                mail_recovery_available=Mail(access.store()).password_reset_available()
-                if name == "reader-login.html" else False,
+                passkeys_available=show_passkeys,
+                public_passkey_login=public_login,
+                public_passkey_host=urlsplit(access.origin).netloc,
+                mail_recovery_available=is_login and Mail(access.store()).password_reset_available(),
             ),
             status_code=status,
         )

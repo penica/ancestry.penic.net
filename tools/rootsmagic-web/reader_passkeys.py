@@ -80,6 +80,11 @@ def passkey_name(name: str) -> str:
     return name
 
 
+def challenge_binding(purpose: Purpose, binding: bytes, token: str) -> bytes:
+    """Allow separate sign-in challenges for tabs sharing a form cookie."""
+    return _digest(f"{binding.hex()}:{token}") if purpose == "login" else binding
+
+
 def save_challenge(
     db: sqlite3.Connection,
     purpose: Purpose,
@@ -87,7 +92,7 @@ def save_challenge(
     challenge: bytes,
     account_id: int | None,
 ) -> str:
-    """Store one pending ceremony per browser binding and action."""
+    """Keep login challenges separate and replace prior registration challenges."""
     now = int(time())
     token = token_urlsafe(32)
     db.execute("DELETE FROM reader_passkey_challenges WHERE expires_at <= ?", (now,))
@@ -99,7 +104,7 @@ def save_challenge(
         (
             _digest(token),
             purpose,
-            binding,
+            challenge_binding(purpose, binding, token),
             challenge,
             account_id,
             now + CEREMONY_SECONDS,
@@ -222,7 +227,7 @@ class Passkeys:
                 """DELETE FROM reader_passkey_challenges
                    WHERE purpose = ? AND binding = ? AND token_hash = ? AND expires_at > ?
                    RETURNING challenge, account_id""",
-                (purpose, binding, _digest(token), int(time())),
+                (purpose, challenge_binding(purpose, binding, token), _digest(token), int(time())),
             ).fetchone()
         if row is None:
             raise PasskeyError("This passkey request expired. Try again.")

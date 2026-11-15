@@ -20,7 +20,7 @@ Records marked living or private, and records with unknown living status, stay h
 
 Under **Account settings → Two-step verification**, enter your current password and scan the QR code with an authenticator app. Enter the six-digit code to finish setup, then save the one-time recovery codes. At sign-in, enter an authenticator code or one recovery code after your password.
 
-On the [public reader](https://ancestry.penic.org/), choose **Account settings → Passkeys** to register a device, password manager, or security key. Confirm your password and, when enabled, enter an authenticator or recovery code. Then use **Sign in with a passkey**. The LAN address supports password sign-in and the existing two-step verification.
+On the public reader, choose **Account settings → Passkeys** to register a device, password manager, or security key. Confirm your password and, when enabled, enter an authenticator or recovery code. Tap the **Username** field for a saved passkey suggestion in browsers that support AutoFill, or use **Sign in with a passkey**. The LAN sign-in page links to the public passkey sign-in. [Public reader](https://ancestry.penic.org/)
 
 Administrators need an authenticator or passkey. New administrator accounts go through setup before they can open the tree or **System settings**. Use an authenticator on the LAN address.
 

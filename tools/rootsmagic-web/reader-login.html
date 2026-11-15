@@ -8,7 +8,7 @@
   {% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token }}">{% endif %}
   <div class="account-field">
     <label for="login-username">Username</label>
-    <input id="login-username" name="username" value="{{ username|default('', true) }}" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="64" required>
+    <input id="login-username" name="username" value="{{ username|default('', true) }}" autocomplete="username{% if passkeys_available %} webauthn{% endif %}" autocapitalize="none" spellcheck="false" maxlength="64" required>
   </div>
   <div class="account-field">
     <label for="login-password">Password</label>
@@ -16,12 +16,16 @@
   </div>
   <button type="submit">Sign in</button>
 </form>
-{% if mail_recovery_available %}<p><a href="/password/reset">Forgot your password?</a></p>
-{% else %}<p class="muted">Forgot your password? Contact your tree administrator to reset it.</p>{% endif %}
 {% if passkeys_available %}
 <div class="passkey-sign-in" id="passkey-sign-in" hidden>
   <button class="account-secondary" id="passkey-login" type="button">Sign in with a passkey</button>
   <p class="account-message" id="passkey-status" role="status" hidden></p>
 </div>
+{% elif public_passkey_login %}
+<div class="passkey-sign-in">
+  <a href="{{ public_passkey_login }}">Sign in with a passkey on {{ public_passkey_host }}</a>
+</div>
 {% endif %}
+{% if mail_recovery_available %}<p><a href="/password/reset">Forgot your password?</a></p>
+{% else %}<p class="muted">Forgot your password? Contact your tree administrator to reset it.</p>{% endif %}
 {% endblock %}
