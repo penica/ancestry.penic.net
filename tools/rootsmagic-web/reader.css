@@ -54,7 +54,24 @@ button:active { background: var(--wash); color: var(--ink); }
 .rows a:hover, .rows a:active { background: var(--wash); }
 .rows a:hover span { text-decoration: underline; }
 .anniversary-date-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
-.anniversary-date-controls input { flex: 0 1 auto; max-inline-size: 100%; }
+.anniversary-date-fields {
+  display: grid;
+  grid-template-columns: 3.75rem minmax(0, 1fr) 4.75rem;
+  gap: var(--s2);
+  max-inline-size: 21rem;
+  min-inline-size: 0;
+  padding: 0;
+  border: 0;
+  margin: 0 0 var(--s3);
+}
+.anniversary-date-fields legend { padding: 0; margin-block-end: var(--s2); }
+.anniversary-date-fields label { color: var(--muted); font-size: var(--small); margin-block-end: var(--s1); }
+.anniversary-date-fields input, .anniversary-date-fields select {
+  inline-size: 100%;
+  padding-inline: var(--s2);
+  color: var(--ink);
+  background: var(--surface);
+}
 .anniversary-date-controls a { padding-inline: var(--s2); }
 .anniversary-group + .anniversary-group { margin-block-start: var(--s4); }
 .anniversary-group h3, .anniversary-caption { margin-block-end: var(--s2); }

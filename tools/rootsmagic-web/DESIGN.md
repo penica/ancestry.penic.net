@@ -15,7 +15,7 @@ Widths: 64rem shell, 46rem reading measure; spacing 4, 8, 12, 16, 24, 32, 48px. 
 ## 5. Screens and primitives
 
 - Directory: search first, then result names and RootsMagic IDs. Primary action: Search. Empty state offers a clear search. Pagination preserves the query.
-- On this day: choose a date, then browse births by life status and a separate list of baptisms or christenings for people without a known birth day. Each row opens the person's pedigree in the selected tree. The native date form works with the keyboard and without JavaScript.
+- On this day: enter Day, Month, and Year in that order, with the month shown by name. Then browse births by life status and a separate list of baptisms or christenings for people without a known birth day. Each row opens the person's pedigree in the selected tree. The date form works with the keyboard and without JavaScript.
 - Person record: name and RootsMagic ID, family links, then events with citations and notes. Primary navigation is opening a relative. Source details use native disclosure with a keyboard-visible focus ring. The directory link is always available.
 - The pedigree full record renders image previews in its initial HTML. Keep fact and citation images with their events. Put remaining person, name, or family images at the end and leave out media already shown with a fact. Use tree-scoped media IDs for same-origin images. Identify registered images that are unavailable locally without loading an image for them.
 - The full record and the details drawer share a native image preview dialog. Opening an image keeps the current page and chart in place. Closing the preview returns focus to its link, including when the details drawer is still open.

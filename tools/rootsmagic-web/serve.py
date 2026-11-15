@@ -113,6 +113,7 @@ from reader_saved_charts import SavedChart, SavedChartDraft, SavedChartName, Sav
 from reader_settings import SettingsError, site_settings
 from reader_tree_state import CommentStorageError, TreeState, comments_path
 from store import (
+    MONTHS,
     Directory,
     PedigreeDirectory,
     PersonID,
@@ -1102,24 +1103,39 @@ def landing_page(request: Request) -> RedirectResponse:
 def on_this_day(
     request: Request,
     tree: SelectedTree,
-    day: Annotated[str, Query(alias="date", max_length=10)] = "",
-) -> HTMLResponse:
+    iso_date: Annotated[str, Query(alias="date", max_length=10)] = "",
+    day: Annotated[int | None, Query(ge=1, le=31)] = None,
+    month: Annotated[int | None, Query(ge=1, le=12)] = None,
+    year: Annotated[int | None, Query(ge=1, le=9999)] = None,
+) -> Response:
     """Render birth and baptism anniversaries within the current tree grant."""
     selected = datetime.now(ZoneInfo("Europe/Ljubljana")).date()
     date_error = ""
-    if day:
+    if day is not None and month is not None and year is not None:
         try:
-            candidate = date.fromisoformat(day)
+            requested = date(year, month, day)
         except ValueError:
-            date_error = "Choose a date from the calendar."
+            date_error = "Enter a valid day for the selected month and year."
         else:
-            if candidate.isoformat() == day:
+            return RedirectResponse(
+                tree.url(f"/on-this-day?date={requested.isoformat()}"), status_code=303
+            )
+    elif any(part is not None for part in (day, month, year)):
+        date_error = "Enter the day, month, and year."
+    elif iso_date:
+        try:
+            candidate = date.fromisoformat(iso_date)
+        except ValueError:
+            date_error = "Choose a valid date."
+        else:
+            if candidate.isoformat() == iso_date:
                 selected = candidate
             else:
-                date_error = "Choose a date from the calendar."
-    anniversaries = read_anniversaries(tree.database, selected)
+                date_error = "Choose a valid date."
+    anniversaries = read_anniversaries(tree.database, selected) if not date_error else None
     statuses = ["Deceased"] if tree.external else ["Living", "Deceased"]
-    if any(person.status == "Status unknown" for person in anniversaries.births):
+    births = anniversaries.births if anniversaries else ()
+    if any(person.status == "Status unknown" for person in births):
         statuses.append("Status unknown")
     return HTMLResponse(
         templates.get_template("reader-anniversaries.html").render(
@@ -1128,11 +1144,15 @@ def on_this_day(
             birth_groups=[
                 (
                     status,
-                    tuple(person for person in anniversaries.births if person.status == status),
+                    tuple(person for person in births if person.status == status),
                 )
                 for status in statuses
             ],
             selected_date=selected.isoformat(),
+            input_day=day if day is not None else selected.day,
+            input_month=month if month is not None else selected.month,
+            input_year=year if year is not None else selected.year,
+            months=enumerate(MONTHS, start=1),
             date_error=date_error,
             tree=tree,
             trees=reader_access.visible_trees(request),

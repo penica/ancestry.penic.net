@@ -34,15 +34,33 @@
     <h1>On this day</h1>
     <form action="/on-this-day" method="get">
       <input type="hidden" name="tree" value="{{ tree.slug }}">
-      <label for="anniversary-date">Date</label>
+      <fieldset class="anniversary-date-fields"{% if date_error %} aria-describedby="anniversary-date-error"{% endif %}>
+        <legend>Date</legend>
+        <div>
+          <label for="anniversary-day">Day</label>
+          <input id="anniversary-day" name="day" type="number" inputmode="numeric" min="1" max="31" value="{{ '%02d'|format(input_day) }}" required{% if date_error %} aria-invalid="true"{% endif %}>
+        </div>
+        <div>
+          <label for="anniversary-month">Month</label>
+          <select id="anniversary-month" name="month" required>
+            {% for number, month in months %}
+            <option value="{{ number }}"{% if number == input_month %} selected{% endif %}>{{ month }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="anniversary-year">Year</label>
+          <input id="anniversary-year" name="year" type="number" inputmode="numeric" min="1" max="9999" value="{{ input_year }}" required>
+        </div>
+      </fieldset>
       <div class="anniversary-date-controls">
-        <input id="anniversary-date" name="date" type="date" value="{{ selected_date }}" max="9999-12-31" required{% if date_error %} aria-invalid="true" aria-describedby="anniversary-date-error"{% endif %}>
         <button type="submit">Show date</button>
         <a class="back" href="{{ tree.url('/on-this-day') }}">Today</a>
       </div>
       {% if date_error %}<p id="anniversary-date-error" role="alert">{{ date_error }}</p>{% endif %}
     </form>
 
+    {% if anniversaries %}
     <section aria-labelledby="births-heading">
       <h2 id="births-heading">Born on this day</h2>
       {% for status, people in birth_groups %}
@@ -53,13 +71,13 @@
       </div>
       {% endfor %}
     </section>
-
     <section aria-labelledby="baptisms-heading">
       <h2 id="baptisms-heading">Baptized on this day</h2>
       <p class="muted anniversary-caption">Baptisms and christenings for people whose birth month and day are unknown.</p>
       {% if anniversaries.baptisms %}{{ people_rows(anniversaries.baptisms, baptism=true) }}
       {% else %}<p class="muted">No matching baptisms or christenings.</p>{% endif %}
     </section>
+    {% endif %}
   </main>
 </body>
 </html>
