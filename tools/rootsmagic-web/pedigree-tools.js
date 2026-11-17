@@ -10,10 +10,12 @@ const relationshipStatus = document.querySelector("#relationship-status");
 const relationshipPeople = document.querySelector("#relationship-people");
 const relationshipResults = document.querySelector("#relationship-results");
 const printButton = document.querySelector("#pedigree-print");
+const exportHTMLButton = document.querySelector("#pedigree-export-html");
 
 let gapRequest;
 let relationshipRequest;
 let printing = false;
+let exportingHTML = false;
 
 const missingLabels = {
   father: "Father not recorded",
@@ -92,12 +94,14 @@ function resetPedigreeTools() {
   relationshipButton.disabled = true;
   gapToggle.disabled = true;
   printButton.disabled = true;
+  exportHTMLButton.disabled = true;
 }
 
 function updatePedigreeTools() {
   relationshipButton.disabled = false;
   gapToggle.disabled = false;
   printButton.disabled = printing;
+  exportHTMLButton.disabled = exportingHTML;
   void loadVisibleGaps();
 }
 
@@ -236,6 +240,15 @@ async function loadPersonEvidence(personId, signal) {
   }
 }
 
+function downloadFile(file, filename) {
+  const url = URL.createObjectURL(file);
+  const link = element("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
 async function downloadPedigree() {
   if (!chartData || printing) return;
   printing = true;
@@ -260,12 +273,7 @@ async function downloadPedigree() {
       const body = await response.json().catch(() => null);
       throw new Error(typeof body?.detail === "string" ? body.detail : "Could not create the PDF.");
     }
-    const url = URL.createObjectURL(await response.blob());
-    const link = element("a");
-    link.href = url;
-    link.download = `${TREE ? `${TREE}-` : ""}pedigree-${id}-a0-roll.pdf`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    downloadFile(await response.blob(), `${TREE ? `${TREE}-` : ""}pedigree-${id}-a0-roll.pdf`);
     if (chartData === snapshot) treeStatus.textContent = "A0 roll PDF downloaded.";
   } catch (error) {
     if (chartData === snapshot) {
@@ -274,6 +282,32 @@ async function downloadPedigree() {
   } finally {
     printing = false;
     printButton.disabled = !chartData;
+  }
+}
+
+async function downloadHTML() {
+  if (!chartData || exportingHTML) return;
+  const snapshot = chartData;
+  const id = snapshot.root.person.id;
+  const failure = "Could not create the complete HTML pedigree.";
+  exportingHTML = true;
+  exportHTMLButton.disabled = true;
+  treeStatus.textContent = "Preparing the complete HTML pedigree…";
+  try {
+    const response = await fetch(treeURL(`${API}/${id}/export-html`), { method: "POST" });
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      throw new Error(typeof body?.detail === "string" ? body.detail : failure);
+    }
+    downloadFile(await response.blob(), `${TREE ? `${TREE}-` : ""}pedigree-${id}.html`);
+    if (chartData === snapshot) treeStatus.textContent = "HTML pedigree downloaded.";
+  } catch (error) {
+    if (chartData === snapshot) {
+      treeStatus.textContent = error instanceof Error && !(error instanceof TypeError) ? error.message : failure;
+    }
+  } finally {
+    exportingHTML = false;
+    exportHTMLButton.disabled = !chartData;
   }
 }
 
@@ -296,4 +330,5 @@ function initPedigreeTools() {
   relationshipDialog.addEventListener("close", () => relationshipRequest?.abort());
   document.querySelector("#relationship-search").addEventListener("submit", (event) => void searchRelationshipPeople(event));
   printButton.addEventListener("click", () => void downloadPedigree());
+  exportHTMLButton.addEventListener("click", () => void downloadHTML());
 }

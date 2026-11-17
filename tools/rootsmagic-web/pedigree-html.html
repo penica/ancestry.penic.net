@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex, nofollow">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-{{ signature }}'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+  <title>{{ person }} · Pedigree</title>
+  <style>{{ style | safe }}</style>
+</head>
+<body>
+  <header class="toolbar">
+    <div>
+      <h1>{{ person }}</h1>
+      <p>{{ tree }} · #{{ export.root }}</p>
+    </div>
+    <div class="controls" role="group" aria-label="Chart navigation">
+      <button id="center" type="button">Starting person</button>
+      <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
+      <output id="zoom-level" aria-label="Zoom level">100%</output>
+      <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+      <button id="fit" type="button">Fit</button>
+    </div>
+  </header>
+  <main class="viewport" tabindex="0" aria-label="Ancestral pedigree">
+    <div class="surface">
+      <div class="graph">
+        <svg class="lines" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"></svg>
+      </div>
+    </div>
+  </main>
+  <noscript><p>Enable JavaScript to explore this pedigree.</p></noscript>
+  <dialog aria-labelledby="facts-title">
+    <header class="facts-header">
+      <div>
+        <h2 id="facts-title"></h2>
+        <p id="facts-id"></p>
+      </div>
+      <button id="close" type="button" autofocus>Close</button>
+    </header>
+    <div class="facts"></div>
+  </dialog>
+  <script type="application/json" id="pedigree-data">{{ export | tojson }}</script>
+  <script>{{ script | safe }}</script>
+</body>
+</html>

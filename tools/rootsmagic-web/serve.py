@@ -58,6 +58,7 @@ from pedigree_evidence import (
     person_evidence,
     record_images,
 )
+from pedigree_html import render_html_export
 from pedigree_print import PrintFontError, PrintLayoutError, render_pedigree_pdf
 from pedigree_research import (
     RelationshipPaths,
@@ -1017,6 +1018,16 @@ async def api_print(request: Request, tree: SelectedTree) -> Response:
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.post("/api/v1/pedigree/{person_id}/export-html", tags=["Pedigree"])
+async def api_export_html(request: Request, person_id: RecordID, tree: SelectedTree) -> Response:
+    with heavy_read_slot(request):
+        document = await run_in_threadpool(render_html_export, templates, tree, PersonID(person_id))
+    if document is None:
+        raise HTTPException(status_code=404, detail="The starting person is unavailable in this tree.")
+    filename = f"{tree.slug}-pedigree-{person_id}.html"
+    return HTMLResponse(document, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 def print_pedigree(request: PrintRequest, tree: Tree) -> bytes:

@@ -29,6 +29,8 @@ Layout: pedigree - fill the available screen below wrapping navigation -> scroll
 
 Layout: phone family - full-width rows in a vertical reading pane below search, the current person's name, and the view switch. The pane scrolls independently and puts parents first, followed by siblings, partners, and children grouped by recorded family. Tapping a name starts from that person, and Details opens the same panel as the chart. Chart controls apply to the chart view. Open a saved or shared chart in Chart view.
 
+Layout: standalone pedigree - the chart scrolls beneath a wrapping toolbar. Use compact PDF-style cards and the Reader's branch and sex colors. Selecting a card opens a scrollable facts dialog and closing it returns focus to the card. The file opens on the starting person with three generations visible and expands deeper ancestry from the bundled data.
+
 - Search by name or RootsMagic ID and select any person card to change the starting person. Place siblings in the starting column and use the starting person's parent links for the chart. Show the current name, generation headings, vital facts, marriage facts, and a reset link.
 - Calculate age at death in the read-only data layer and pass the same formatted value to cards, details, Family rows, and PDF export. Measure the age with the rest of the card text before placing PDF cards.
 - When multiple files are available, use the same **Tree** selector in the chart and directory. Scope routes by the configured tree slug, including direct person links, evidence, and PDF requests. Person IDs belong to their tree.
